@@ -3,6 +3,7 @@
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -10,12 +11,25 @@ PROVIDER_OLLAMA = "ollama"
 PROVIDER_ANTHROPIC = "anthropic"
 SUPPORTED_PROVIDERS = (PROVIDER_OLLAMA, PROVIDER_ANTHROPIC)
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+
 DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
 DEFAULT_OLLAMA_MODEL = "qwen3:1.7b"
 DEFAULT_ANTHROPIC_MODEL = "claude-opus-5"
 DEFAULT_TIMEOUT_SECONDS = 180.0
 DEFAULT_MAX_TOKENS = 512
 DEFAULT_SYSTEM_PROMPT = "Отвечай по-русски, кратко и по существу."
+
+DEFAULT_AGENT_MAX_STEPS = 8
+MIN_AGENT_MAX_STEPS = 5
+MAX_AGENT_MAX_STEPS = 10
+
+DEFAULT_EXEC_ALLOWLIST = ("curl", "cat", "ls", "date", "head", "tail", "wc", "grep")
+DEFAULT_EXEC_TIMEOUT_SECONDS = 20.0
+DEFAULT_EXEC_MAX_OUTPUT = 4000
+
+DEFAULT_SKILLS_DIR = PROJECT_ROOT / "skills"
+DEFAULT_SKILLS_MAX_CHARS = 8000
 
 
 class ConfigError(Exception):
@@ -32,6 +46,14 @@ class Config:
     llm_timeout_seconds: float
     llm_max_tokens: int
     system_prompt: str
+    telegram_allowed_ids: tuple[int, ...]
+    agent_max_steps: int
+    exec_allowlist: tuple[str, ...]
+    exec_timeout_seconds: float
+    exec_workdir: Path
+    exec_max_output: int
+    skills_dir: Path
+    skills_max_chars: int
 
 
 def mask_secret(secret: str) -> str:
@@ -93,6 +115,61 @@ def _default_model(provider: str) -> str:
     return DEFAULT_OLLAMA_MODEL
 
 
+def _read_allowed_ids() -> tuple[int, ...]:
+    """Numeric Telegram ids allowed to talk to the bot; empty tuple means everyone."""
+    raw = os.getenv("TELEGRAM_ALLOWED_IDS", "").strip()
+    if not raw:
+        return ()
+    ids: list[int] = []
+    for item in raw.split(","):
+        candidate = item.strip()
+        if not candidate:
+            continue
+        try:
+            ids.append(int(candidate))
+        except ValueError as error:
+            raise ConfigError(
+                f"Переменная окружения TELEGRAM_ALLOWED_IDS содержит {candidate!r}: "
+                "ожидаются числовые id через запятую."
+            ) from error
+    return tuple(ids)
+
+
+def _read_agent_max_steps() -> int:
+    steps = int(
+        _read_positive_number("AGENT_MAX_STEPS", DEFAULT_AGENT_MAX_STEPS, lambda raw: int(raw))
+    )
+    if not MIN_AGENT_MAX_STEPS <= steps <= MAX_AGENT_MAX_STEPS:
+        raise ConfigError(
+            f"Переменная окружения AGENT_MAX_STEPS={steps} вне допустимого диапазона "
+            f"{MIN_AGENT_MAX_STEPS}–{MAX_AGENT_MAX_STEPS}."
+        )
+    return steps
+
+
+def _read_allowlist() -> tuple[str, ...]:
+    raw = os.getenv("EXEC_ALLOWLIST", "").strip()
+    if not raw:
+        return DEFAULT_EXEC_ALLOWLIST
+    commands = tuple(item.strip() for item in raw.split(",") if item.strip())
+    if not commands:
+        raise ConfigError(
+            "Переменная окружения EXEC_ALLOWLIST пуста после разбора: "
+            "укажите имена команд через запятую."
+        )
+    return commands
+
+
+def _read_directory(name: str, default: Path) -> Path:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = (PROJECT_ROOT / path).resolve()
+    return path.resolve()
+
+
 def load_config() -> Config:
     """Read configuration from .env and the process environment."""
     load_dotenv(override=False)
@@ -110,6 +187,24 @@ def load_config() -> Config:
             _read_positive_number("LLM_MAX_TOKENS", DEFAULT_MAX_TOKENS, lambda raw: int(raw))
         ),
         system_prompt=os.getenv("SYSTEM_PROMPT", "").strip() or DEFAULT_SYSTEM_PROMPT,
+        telegram_allowed_ids=_read_allowed_ids(),
+        agent_max_steps=_read_agent_max_steps(),
+        exec_allowlist=_read_allowlist(),
+        exec_timeout_seconds=_read_positive_number(
+            "EXEC_TIMEOUT_SECONDS", DEFAULT_EXEC_TIMEOUT_SECONDS, float
+        ),
+        exec_workdir=_read_directory("EXEC_WORKDIR", PROJECT_ROOT),
+        exec_max_output=int(
+            _read_positive_number(
+                "EXEC_MAX_OUTPUT", DEFAULT_EXEC_MAX_OUTPUT, lambda raw: int(raw)
+            )
+        ),
+        skills_dir=_read_directory("SKILLS_DIR", DEFAULT_SKILLS_DIR),
+        skills_max_chars=int(
+            _read_positive_number(
+                "SKILLS_MAX_CHARS", DEFAULT_SKILLS_MAX_CHARS, lambda raw: int(raw)
+            )
+        ),
     )
 
 
@@ -121,12 +216,21 @@ def get_config() -> Config:
 
 def describe_config(config: Config) -> str:
     """Human-readable configuration dump with secrets masked."""
+    allowed_ids = ",".join(str(item) for item in config.telegram_allowed_ids) or "все"
     return (
         f"provider={config.llm_provider} "
         f"model={config.llm_model} "
         f"base_url={config.llm_base_url if config.llm_provider == PROVIDER_OLLAMA else '-'} "
         f"timeout={config.llm_timeout_seconds}s "
         f"max_tokens={config.llm_max_tokens} "
+        f"agent_max_steps={config.agent_max_steps} "
+        f"exec_allowlist={','.join(config.exec_allowlist)} "
+        f"exec_timeout={config.exec_timeout_seconds}s "
+        f"exec_workdir={config.exec_workdir} "
+        f"exec_max_output={config.exec_max_output} "
+        f"skills_dir={config.skills_dir} "
+        f"skills_max_chars={config.skills_max_chars} "
+        f"allowed_ids={allowed_ids} "
         f"telegram_token={mask_secret(config.telegram_bot_token)} "
         f"llm_api_key={mask_secret(config.llm_api_key)}"
     )
