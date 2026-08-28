@@ -9,7 +9,8 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 
 from config import Config, ConfigError, describe_config, get_config
-from llms import LLMError, LLMTimeoutError, call_llm
+from harness import load_skills, run_agent
+from llms import LLMError, LLMTimeoutError
 
 TELEGRAM_MESSAGE_LIMIT = 4096
 EMPTY_ANSWER_TEXT = "Модель вернула пустой ответ."
@@ -19,6 +20,10 @@ GENERIC_ERROR_TEXT = (
 )
 UNSUPPORTED_CONTENT_TEXT = (
     "Я понимаю только текст. Пришлите, пожалуйста, текстовое сообщение."
+)
+OPEN_ACCESS_WARNING = (
+    "TELEGRAM_ALLOWED_IDS пуст: бот отвечает всем. У агента есть инструмент exec, "
+    "поэтому для реальной работы список отправителей нужно задать."
 )
 
 logger = logging.getLogger(__name__)
@@ -57,21 +62,39 @@ async def send_answer(message: Message, text: str) -> None:
         await message.answer(part)
 
 
+def is_allowed(message: Message, config: Config) -> bool:
+    """Empty TELEGRAM_ALLOWED_IDS means everyone; otherwise only the listed ids."""
+    if not config.telegram_allowed_ids:
+        return True
+    sender = getattr(message.from_user, "id", None)
+    if sender in config.telegram_allowed_ids:
+        return True
+    logger.warning("Сообщение от id=%s отклонено: не в TELEGRAM_ALLOWED_IDS", sender)
+    return False
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message) -> None:
     config = get_config()
+    if not is_allowed(message, config):
+        return
     await message.answer(
         "Привет! Я отправляю ваши сообщения языковой модели и возвращаю ответ.\n"
         f"Сейчас работает провайдер {config.llm_provider}, модель {config.llm_model}.\n"
+        f"Агентный режим: до {config.agent_max_steps} шагов цикла, "
+        f"инструмент exec с командами {', '.join(config.exec_allowlist)}.\n"
         "Память диалога не ведётся: каждое сообщение обрабатывается независимо."
     )
 
 
 @router.message(F.text)
 async def handle_text(message: Message) -> None:
+    config = get_config()
+    if not is_allowed(message, config):
+        return
     await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
     try:
-        answer = await call_llm(message.text)
+        result = await run_agent(message.text, config)
     except LLMTimeoutError as error:
         logger.warning("LLM timeout: %s", error, exc_info=True)
         await message.answer(
@@ -86,11 +109,13 @@ async def handle_text(message: Message) -> None:
         logger.exception("Unexpected failure while handling a message")
         await message.answer(GENERIC_ERROR_TEXT)
         return
-    await send_answer(message, answer)
+    await send_answer(message, result.text)
 
 
 @router.message()
 async def handle_unsupported(message: Message) -> None:
+    if not is_allowed(message, get_config()):
+        return
     await message.answer(UNSUPPORTED_CONTENT_TEXT)
 
 
@@ -120,6 +145,13 @@ def main() -> int:
         logger.error("Ошибка конфигурации: %s", error)
         return 1
     logger.info("Конфигурация: %s", describe_config(config))
+    if not config.telegram_allowed_ids:
+        logger.warning(OPEN_ACCESS_WARNING)
+    try:
+        load_skills(config)
+    except ConfigError as error:
+        logger.error("Ошибка конфигурации: %s", error)
+        return 1
     try:
         asyncio.run(run_bot(config))
     except KeyboardInterrupt:

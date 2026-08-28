@@ -4,6 +4,23 @@ from anthropic import APIConnectionError, APIError, APITimeoutError, AsyncAnthro
 
 from config import Config
 from llms.errors import LLMError, LLMTimeoutError
+from llms.protocol import (
+    ROLE_ASSISTANT,
+    ROLE_TOOL,
+    LLMResult,
+    ToolCall,
+    ToolSpec,
+    user_message,
+)
+
+
+def describe_tool(tool: ToolSpec) -> dict:
+    """Native Anthropic tool description."""
+    return {
+        "name": tool.name,
+        "description": tool.description,
+        "input_schema": tool.parameters,
+    }
 
 
 def extract_text(content_blocks) -> str:
@@ -13,19 +30,78 @@ def extract_text(content_blocks) -> str:
     )
 
 
-async def generate(prompt: str, config: Config) -> str:
+def _assistant_content(message: dict) -> list[dict]:
+    blocks: list[dict] = []
+    text = message.get("content") or ""
+    if text:
+        blocks.append({"type": "text", "text": text})
+    for call in message.get("tool_calls") or []:
+        blocks.append(
+            {"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments}
+        )
+    return blocks
+
+
+def build_messages(messages: list[dict]) -> list[dict]:
+    """Tool results are user-side blocks here, so consecutive ones are merged."""
+    payload: list[dict] = []
+    pending_results: list[dict] = []
+
+    def flush_results() -> None:
+        if pending_results:
+            payload.append({"role": "user", "content": list(pending_results)})
+            pending_results.clear()
+
+    for message in messages:
+        role = message["role"]
+        if role == ROLE_TOOL:
+            pending_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": message["tool_call_id"],
+                    "content": message["content"],
+                }
+            )
+            continue
+        flush_results()
+        if role == ROLE_ASSISTANT:
+            payload.append({"role": "assistant", "content": _assistant_content(message)})
+        else:
+            payload.append({"role": "user", "content": message["content"]})
+    flush_results()
+    return payload
+
+
+def parse_response(response) -> LLMResult:
+    """Reduce a native Anthropic answer to the provider-independent result."""
+    blocks = response.content
+    calls = tuple(
+        ToolCall(id=block.id, name=block.name, arguments=dict(block.input or {}))
+        for block in blocks
+        if getattr(block, "type", None) == "tool_use"
+    )
+    return LLMResult(text=extract_text(blocks), tool_calls=calls)
+
+
+async def generate_step(
+    messages: list[dict], tools: tuple[ToolSpec, ...], config: Config
+) -> LLMResult:
+    """One model call: either a final text or requested tool calls."""
     client = AsyncAnthropic(
         api_key=config.llm_api_key,
         timeout=config.llm_timeout_seconds,
         max_retries=0,
     )
+    request = {
+        "model": config.llm_model,
+        "system": config.system_prompt,
+        "messages": build_messages(messages),
+        "max_tokens": config.llm_max_tokens,
+    }
+    if tools:
+        request["tools"] = [describe_tool(tool) for tool in tools]
     try:
-        response = await client.messages.create(
-            model=config.llm_model,
-            system=config.system_prompt,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=config.llm_max_tokens,
-        )
+        response = await client.messages.create(**request)
     except APITimeoutError as error:
         raise LLMTimeoutError(
             f"Модель {config.llm_model} не ответила за {config.llm_timeout_seconds:.0f} секунд."
@@ -37,4 +113,9 @@ async def generate(prompt: str, config: Config) -> str:
     finally:
         await client.close()
 
-    return extract_text(response.content)
+    return parse_response(response)
+
+
+async def generate(prompt: str, config: Config) -> str:
+    result = await generate_step([user_message(prompt)], (), config)
+    return result.text

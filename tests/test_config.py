@@ -47,3 +47,41 @@ def test_secrets_are_masked_in_logs(clean_env):
 
     assert "123456:super-secret-token" not in dump
     assert mask_secret("123456:super-secret-token") in dump
+
+
+def test_agent_defaults(clean_env):
+    clean_env.setenv("TELEGRAM_BOT_TOKEN", "123456:token")
+
+    config = load_config()
+
+    assert config.agent_max_steps == 8
+    assert config.exec_allowlist == ("curl", "cat", "ls", "date", "head", "tail", "wc", "grep")
+    assert config.exec_timeout_seconds == 20.0
+    assert config.exec_max_output == 4000
+    assert config.skills_max_chars == 8000
+    assert config.telegram_allowed_ids == ()
+
+
+def test_agent_max_steps_outside_range_is_rejected(clean_env):
+    clean_env.setenv("TELEGRAM_BOT_TOKEN", "123456:token")
+    clean_env.setenv("AGENT_MAX_STEPS", "42")
+
+    with pytest.raises(ConfigError) as error:
+        load_config()
+    assert "AGENT_MAX_STEPS" in str(error.value)
+
+
+def test_allowed_ids_are_parsed_as_numbers(clean_env):
+    clean_env.setenv("TELEGRAM_BOT_TOKEN", "123456:token")
+    clean_env.setenv("TELEGRAM_ALLOWED_IDS", " 100, 200 ,300")
+
+    assert load_config().telegram_allowed_ids == (100, 200, 300)
+
+
+def test_non_numeric_allowed_id_gives_readable_error(clean_env):
+    clean_env.setenv("TELEGRAM_BOT_TOKEN", "123456:token")
+    clean_env.setenv("TELEGRAM_ALLOWED_IDS", "100,@username")
+
+    with pytest.raises(ConfigError) as error:
+        load_config()
+    assert "TELEGRAM_ALLOWED_IDS" in str(error.value)
