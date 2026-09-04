@@ -1,6 +1,6 @@
 {
  "meta": {
-  "label": "after-cache",
+  "label": "after-cache-haiku",
   "provider": "anthropic",
   "model": "claude-haiku-4-5",
   "effort": null,
@@ -28,7 +28,7 @@
   "tool_descriptions_tokens": 1726
  },
  "summary": {
-  "label": "after-cache",
+  "label": "after-cache-haiku",
   "provider": "anthropic",
   "model": "claude-haiku-4-5",
   "effort": null,

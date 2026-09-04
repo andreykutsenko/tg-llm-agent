@@ -164,12 +164,14 @@ _(заполняется после прогона)_
 Каждая оптимизация мерится от базы `before`, не по цепочке: метки
 `after-cache`, `after-skills`, `after-tools`, финальный `after-all`.
 
-### 1. Prompt caching константного префикса (`after-cache`)
+### 1. Prompt caching константного префикса
 
 `cache_control: ephemeral` на system-блоке и на последнем описании
-инструмента (коммит `ac2e796`). Скиллы внутри system-блока.
+инструмента. Скиллы внутри system-блока.
 
-| метрика | before | after-cache | изменение |
+#### На claude-haiku-4-5 (`before-haiku` → `after-cache-haiku`, 5 прогонов)
+
+| метрика | before-haiku | after-cache-haiku | изменение |
 |---|---|---|---|
 | стоимость | $0.4622 | $0.4704 | +1.8% |
 | input tokens | 428 293 | 435 313 | +1.6% |
