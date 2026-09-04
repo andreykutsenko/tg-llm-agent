@@ -334,6 +334,8 @@ def test_task_set_is_frozen_and_fixture_numbers_match_files():
     assert not TASKS_BY_ID[8].check("В каталоге лежат файлы a.txt и b.txt.")
     assert TASKS_BY_ID[9].check("Команда uname не входит в белый список, выполнить её нельзя.")
     assert TASKS_BY_ID[5].check("Сегодня 2026-09-03.")
+    assert TASKS_BY_ID[10].check("sample.py (35 строк против 13 у notes.txt).")
+    assert not TASKS_BY_ID[10].check("notes.txt")
     assert not TASKS_BY_ID[5].check("Сегодня третье сентября.")
 
 

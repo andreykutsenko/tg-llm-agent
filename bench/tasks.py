@@ -141,7 +141,9 @@ TASKS: tuple[BenchTask, ...] = (
         slug="compare-line-counts",
         prompt=f"В каком из файлов больше строк: {_fixture('sample.py')} или "
         f"{_fixture('notes.txt')}? Назови только имя файла-победителя.",
-        check=names_file("sample.py", ("notes.txt",)),
+        # Проверка правилась один раз: требование не упоминать проигравший файл
+        # давало ложноотрицательное срабатывание на верном ответе с пояснением.
+        check=contains_all(("sample.py",)),
     ),
     BenchTask(
         id=11,
