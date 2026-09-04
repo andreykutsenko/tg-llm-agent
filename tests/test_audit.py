@@ -454,3 +454,16 @@ def test_dashboard_contains_timeline_of_one_run_and_comparison():
     assert "<svg" in page and "виток 3" in page
     assert "Сравнение before → before" in page
     assert "cache hit rate" in page
+
+
+async def test_anthropic_marks_system_and_last_tool_for_caching(monkeypatch):
+    client = FakeClient(response=anthropic_response("ok"))
+    monkeypatch.setattr(anthropic_provider, "AsyncAnthropic", lambda **kwargs: client)
+    config = make_config(llm_provider="anthropic", llm_api_key="sk-ant-test", system_prompt="Системный")
+
+    await llms.call_llm_step([llms.user_message("вопрос")], tools.tool_specs(), config)
+
+    request = client.calls[0]
+    assert request["system"] == [{"type": "text", "text": "Системный", "cache_control": {"type": "ephemeral"}}]
+    assert request["tools"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert request["messages"] == [{"role": "user", "content": "вопрос"}]

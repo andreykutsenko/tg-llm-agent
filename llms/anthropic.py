@@ -15,6 +15,11 @@ from llms.protocol import (
 )
 
 
+# Константный префикс запроса (описания инструментов и system) не меняется
+# между витками и задачами, поэтому помечается для prompt caching.
+CACHE_CONTROL = {"type": "ephemeral"}
+
+
 def describe_tool(tool: ToolSpec) -> dict:
     """Native Anthropic tool description."""
     return {
@@ -22,6 +27,19 @@ def describe_tool(tool: ToolSpec) -> dict:
         "description": tool.description,
         "input_schema": tool.parameters,
     }
+
+
+def describe_tools(tools: tuple[ToolSpec, ...]) -> list[dict]:
+    """Tool list with a cache breakpoint after the last one."""
+    described = [describe_tool(tool) for tool in tools]
+    if described:
+        described[-1] = {**described[-1], "cache_control": CACHE_CONTROL}
+    return described
+
+
+def system_blocks(system_prompt: str) -> list[dict]:
+    """System prompt as one cached text block."""
+    return [{"type": "text", "text": system_prompt, "cache_control": CACHE_CONTROL}]
 
 
 def extract_text(content_blocks) -> str:
@@ -114,14 +132,14 @@ async def generate_step(
     )
     request = {
         "model": config.llm_model,
-        "system": config.system_prompt,
+        "system": system_blocks(config.system_prompt),
         "messages": build_messages(messages),
         "max_tokens": config.llm_max_tokens,
     }
     if config.llm_effort is not None:
         request["output_config"] = {"effort": config.llm_effort}
     if tools:
-        request["tools"] = [describe_tool(tool) for tool in tools]
+        request["tools"] = describe_tools(tools)
     try:
         response = await client.messages.create(**request)
     except APITimeoutError as error:
