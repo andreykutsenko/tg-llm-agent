@@ -172,3 +172,22 @@ async def test_no_memory_between_user_messages(monkeypatch):
 
     assert model.requests[0] == [{"role": "user", "content": "первое сообщение"}]
     assert model.requests[1] == [{"role": "user", "content": "второе сообщение"}]
+
+
+async def test_skill_with_triggers_is_loaded_only_for_matching_requests(monkeypatch, skills_dir):
+    (skills_dir / "weather.md").write_text(
+        "<!-- triggers: погод, weather -->\n# Погода\nЗапросить wttr.in.", encoding="utf-8"
+    )
+    (skills_dir / "always.md").write_text("# Всегда\nОбщие правила.", encoding="utf-8")
+    model = ModelDouble([LLMResult(text="ок")])
+    monkeypatch.setattr(harness, "call_llm_step", model)
+    config = make_config(skills_dir=skills_dir)
+
+    await harness.run_agent("Какая ПОГОДА в Минске?", config)
+    await harness.run_agent("сколько строк в файле?", config)
+
+    with_weather, without_weather = (c.system_prompt for c in model.configs)
+    assert "weather.md" in with_weather and "Запросить wttr.in." in with_weather
+    assert "triggers:" not in with_weather
+    assert "weather.md" not in without_weather
+    assert "always.md" in with_weather and "always.md" in without_weather

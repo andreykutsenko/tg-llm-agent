@@ -23,7 +23,14 @@ from bench.tasks import BenchTask, select_tasks
 import llms
 import tools
 from config import Config, load_config
-from harness import AgentResult, build_system_prompt, load_skills, run_agent
+from harness import (
+    AgentResult,
+    build_system_prompt,
+    load_skills,
+    render_skills,
+    run_agent,
+    select_skills,
+)
 from observability import current_step, recorder
 
 # Шум success rate при 5 прогонах ≥ 4 п.п. (см. REPORT-audit.md); 10 дают ≈1 п.п.
@@ -91,8 +98,13 @@ PROBE_MESSAGE = "."
 
 
 async def measure_constants(config: Config) -> dict:
-    """Sizes of the system prompt (with skills) and tool descriptions, once per measurement."""
-    system_prompt = build_system_prompt(config, load_skills(config))
+    """Sizes of the system prompt and tool descriptions, once per measurement.
+
+    Only the skills that go into every request count as a constant; skills
+    summoned by a trigger land in the per-task remainder.
+    """
+    always_on = select_skills(load_skills(config), "")
+    system_prompt = build_system_prompt(config, render_skills(always_on))
     specs = tools.tool_specs()
     tool_descriptions = json.dumps([dataclasses.asdict(spec) for spec in specs], ensure_ascii=False)
     probe = [llms.user_message(PROBE_MESSAGE)]
