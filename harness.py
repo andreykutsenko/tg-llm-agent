@@ -2,6 +2,7 @@
 
 import dataclasses
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
@@ -12,6 +13,9 @@ from llms import assistant_message, call_llm_step, tool_message, user_message
 from observability import set_current_step
 
 SKILLS_SUFFIX = ".md"
+# Скилл со строкой «<!-- triggers: погод, weather -->» уходит в system только
+# когда запрос содержит один из триггеров; без строки — всегда.
+SKILL_TRIGGERS = re.compile(r"<!--\s*triggers:\s*(.*?)\s*-->", re.IGNORECASE | re.DOTALL)
 AGENT_INSTRUCTIONS = (
     "Ты — агент с доступом к инструментам. Если для ответа нужны данные, "
     "которых у тебя нет, вызывай инструмент, а не выдумывай результат. "
@@ -33,6 +37,21 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class Skill:
+    """One skills/*.md: its text for the model and the words that summon it."""
+
+    name: str
+    text: str
+    triggers: tuple[str, ...]
+
+    def matches(self, user_text: str) -> bool:
+        if not self.triggers:
+            return True
+        lowered = user_text.lower()
+        return any(trigger in lowered for trigger in self.triggers)
+
+
+@dataclass(frozen=True)
 class AgentResult:
     """What the loop produced and how it ended."""
 
@@ -45,17 +64,28 @@ def _describe_sizes(files, sizes) -> str:
     return "\n".join(f"  {path.name}: {size} симв." for path, size in zip(files, sizes))
 
 
+def _parse_skill(path, raw: str) -> Skill:
+    match = SKILL_TRIGGERS.search(raw)
+    triggers = ()
+    if match:
+        triggers = tuple(
+            item.strip().lower() for item in match.group(1).split(",") if item.strip()
+        )
+        raw = SKILL_TRIGGERS.sub("", raw, count=1)
+    return Skill(name=path.name, text=raw.strip(), triggers=triggers)
+
+
 @lru_cache(maxsize=1)
-def load_skills(config: Config) -> str:
+def load_skills(config: Config) -> tuple[Skill, ...]:
     """Read every skills/*.md once at start; oversize is a startup error."""
     directory = config.skills_dir
     if not directory.is_dir():
         logger.warning("Каталог скиллов %s не найден, скиллы не загружены", directory)
-        return ""
+        return ()
     files = sorted(path for path in directory.glob(f"*{SKILLS_SUFFIX}") if path.is_file())
     if not files:
         logger.warning("В каталоге %s нет файлов %s", directory, SKILLS_SUFFIX)
-        return ""
+        return ()
     contents = [path.read_text(encoding="utf-8") for path in files]
     sizes = [len(text) for text in contents]
     total = sum(sizes)
@@ -67,9 +97,16 @@ def load_skills(config: Config) -> str:
             f"{_describe_sizes(files, sizes)}"
         )
     logger.info("Загружено скиллов: %d, суммарно %d символов", len(files), total)
-    return "\n\n".join(
-        f"### {path.name}\n{text.strip()}" for path, text in zip(files, contents)
-    )
+    return tuple(_parse_skill(path, text) for path, text in zip(files, contents))
+
+
+def select_skills(skills: tuple[Skill, ...], user_text: str) -> tuple[Skill, ...]:
+    """Only the skills the request calls for; the rest stay out of the system prompt."""
+    return tuple(skill for skill in skills if skill.matches(user_text))
+
+
+def render_skills(skills: tuple[Skill, ...]) -> str:
+    return "\n\n".join(f"### {skill.name}\n{skill.text}" for skill in skills)
 
 
 def build_system_prompt(config: Config, skills: str) -> str:
@@ -100,8 +137,9 @@ def _finish_with_limit(partial_texts: list[str], config: Config) -> AgentResult:
 
 async def run_agent(user_text: str, config: Config) -> AgentResult:
     """Run the loop for exactly one user message; the context dies with the answer."""
-    skills = load_skills(config)
-    step_config = _agent_config(config, skills)
+    skills = select_skills(load_skills(config), user_text)
+    logger.info("Скиллы для запроса: %s", ", ".join(s.name for s in skills) or "нет")
+    step_config = _agent_config(config, render_skills(skills))
     specs = tools.tool_specs()
     messages = [user_message(user_text)]
     partial_texts: list[str] = []
