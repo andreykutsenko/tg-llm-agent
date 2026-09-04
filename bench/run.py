@@ -26,8 +26,9 @@ from config import Config, load_config
 from harness import AgentResult, build_system_prompt, load_skills, run_agent
 from observability import current_step, recorder
 
-DEFAULT_RUNS = 5
-DEFAULT_BENCH_MODEL = "claude-haiku-4-5"
+# Шум success rate при 5 прогонах ≥ 4 п.п. (см. REPORT-audit.md); 10 дают ≈1 п.п.
+DEFAULT_RUNS = 10
+DEFAULT_BENCH_MODEL = "claude-sonnet-5"
 # claude-haiku-4-5 отвечает 400 на output_config.effort, поэтому по умолчанию не шлём.
 DEFAULT_BENCH_EFFORT = ""
 ANSWER_EXCERPT_CHARS = 300
