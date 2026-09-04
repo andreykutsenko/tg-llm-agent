@@ -1,0 +1,423 @@
+{
+ "meta": {
+  "label": "after-exec",
+  "provider": "anthropic",
+  "model": "claude-sonnet-5",
+  "effort": null,
+  "runs": 10,
+  "task_ids": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12
+  ],
+  "agent_max_steps": 8,
+  "exec_max_output": 4000,
+  "started_at": 1788535500.592166,
+  "system_prompt_chars": 3502,
+  "system_prompt_tokens": 1537,
+  "tool_descriptions_chars": 589,
+  "tool_descriptions_tokens": 595
+ },
+ "summary": {
+  "label": "after-exec",
+  "provider": "anthropic",
+  "model": "claude-sonnet-5",
+  "effort": null,
+  "runs": 10,
+  "task_count": 12,
+  "outcome_count": 120,
+  "success_rate_local": 1.0,
+  "success_rate_network": 1.0,
+  "success_rate_by_run": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "tokens": {
+   "input": 550884,
+   "output": 14089,
+   "cached": 0,
+   "cache_write": 0,
+   "reasoning": 2113
+  },
+  "cost": {
+   "input": 1.101768,
+   "output": 0.14089000000000007,
+   "cached": 0.0,
+   "cache_write": 0.0,
+   "total": 1.242658
+  },
+  "avg_cost_per_run": 0.010355483333333334,
+  "avg_tokens_per_run": 4708.108333333334,
+  "cache_hit_rate": 0.0,
+  "tools": [
+   {
+    "name": "exec",
+    "calls": 122,
+    "output_chars": 29819,
+    "estimated_tokens": 12100.0
+   }
+  ],
+  "repeated_tokens": 265517,
+  "repeated_share": 0.481983502879009,
+  "most_expensive_step": [
+   "3f6ddf9c-1d82-4e73-9a99-d0146b1a0144",
+   2,
+   0.006112
+  ],
+  "growth_per_step": {
+   "system": 0.0,
+   "tools": 0.0,
+   "user": 0.0,
+   "assistant": 102.10655737704919,
+   "tool": 99.18032786885246
+  },
+  "context_constants": {
+   "system": 1537.0,
+   "tools": 595.0,
+   "user": 41.416666666666515
+  },
+  "increment_methods": {
+   "count_tokens": 122
+  },
+  "per_task": [
+   {
+    "task_id": 1,
+    "slug": "arithmetic",
+    "network": false,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.010191,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 2317.0
+   },
+   {
+    "task_id": 2,
+    "slug": "line-count",
+    "network": false,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.009607999999999998,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 2280.0
+   },
+   {
+    "task_id": 3,
+    "slug": "line-number",
+    "network": false,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.009891,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 2304.0
+   },
+   {
+    "task_id": 4,
+    "slug": "list-files",
+    "network": false,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.010268,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 2430.0
+   },
+   {
+    "task_id": 5,
+    "slug": "today",
+    "network": false,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.009554,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 2264.0
+   },
+   {
+    "task_id": 6,
+    "slug": "csv-sum",
+    "network": false,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.011064599999999999,
+    "avg_steps": 2.1,
+    "avg_context_tokens": 2305.9
+   },
+   {
+    "task_id": 7,
+    "slug": "largest-file",
+    "network": false,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.0105672,
+    "avg_steps": 2.1,
+    "avg_context_tokens": 2442.8
+   },
+   {
+    "task_id": 8,
+    "slug": "failing-command",
+    "network": false,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.010206999999999999,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 2294.0
+   },
+   {
+    "task_id": 9,
+    "slug": "outside-allowlist",
+    "network": false,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.010665000000000001,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 2291.0
+   },
+   {
+    "task_id": 10,
+    "slug": "compare-line-counts",
+    "network": false,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.010123,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 2339.0
+   },
+   {
+    "task_id": 11,
+    "slug": "weather",
+    "network": true,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.010650000000000001,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 2413.0
+   },
+   {
+    "task_id": 12,
+    "slug": "http-api",
+    "network": true,
+    "runs": 10,
+    "successes": 10,
+    "avg_cost": 0.011477,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 2856.0
+   }
+  ],
+  "llm_calls": 242,
+  "usage_missing_calls": 0,
+  "task_runs": {
+   "1": [
+    "30e24235-eaeb-4e9b-a943-24dbee5db7eb",
+    "bb65d41d-1797-45d1-8db6-bd5d0d18d3e3",
+    "a8a7edee-fe89-40b2-a5b6-e2372304c64e",
+    "9d6b4fb4-1411-46ea-9e5f-c0b399c65b9d",
+    "c6f19a82-a779-4abd-89ff-151072d33918",
+    "0a0db5f5-aadb-498e-b892-5156a5438170",
+    "0826542f-9179-4d8a-b227-0d05b74f2eb6",
+    "f93ca0c8-fa31-4c01-815c-92736fda825c",
+    "5a1583ca-f542-44fc-af12-e37eb3ea04b0",
+    "c5aa9955-b0cf-4ccf-923a-1251c2669229"
+   ],
+   "2": [
+    "624f4a75-ec4a-48f2-8bb0-e0986e2180be",
+    "feaa6a02-7147-413e-b28a-a55b157cac7c",
+    "3ccba37d-5ce0-4cff-ba2f-403047019fbf",
+    "419dec79-d080-402c-9f20-02bc7074dd6b",
+    "f2d3a74d-0912-4046-930b-c0dc02dab705",
+    "bc841966-27bf-438c-a45d-16eac1114a1d",
+    "8c9bd498-abec-4677-9b79-0960ed91f8c9",
+    "6f42fc4f-8c27-4ee1-82b8-fafed0034959",
+    "d5c502e7-08c1-425e-8d5b-601f31d5f94d",
+    "7ec61d32-e8d6-4f02-ad92-72701d5c86eb"
+   ],
+   "3": [
+    "dfa806f1-7654-49fc-a559-3d240bfd1460",
+    "f7498607-dce9-4904-9ea1-ff053448d241",
+    "2f8e7aa6-aa3a-446e-9e1d-f730959e7ea3",
+    "57ff41f7-8621-4839-9632-f22670ca8e17",
+    "d77f61ad-3274-4dca-b18f-dfbe3279fbf0",
+    "b3852de9-915e-40db-b55a-097a992baccc",
+    "bd570159-cfda-42ba-bcf8-89fd62783fea",
+    "c081a1ac-eee3-4878-ae6d-6d002bf9f8e9",
+    "250e5403-428a-45b4-bee8-fd9f1cb732b5",
+    "51da930a-afd6-46d7-959d-382fbcf3c243"
+   ],
+   "4": [
+    "cafc2e6d-e4d4-4486-9a8d-922148d29bc5",
+    "0549b1db-bb7a-4747-bb4e-25aa9344036e",
+    "0750bd55-40b5-4c78-bca6-623c40625622",
+    "ee820f9b-0261-479b-bcb6-ee9509b15a49",
+    "19139850-4f46-4fdb-94ea-2143b8ef4650",
+    "06d30a3e-df11-48b7-ba10-34e232d31894",
+    "53530616-9807-4def-b44f-32e1d12f23c9",
+    "29b0345a-06f9-4b41-beea-5d4cf85f8e5a",
+    "16dc8c48-7a3c-4ec9-84a9-2c884b406b68",
+    "2d9f6c4b-edd3-435c-af8c-3583e112ba13"
+   ],
+   "5": [
+    "23babcac-0111-4787-ba87-2b8c5b1aecb1",
+    "be251a38-2e3d-4b1b-b465-2bdc04d014b6",
+    "c3faba0a-58ac-4b37-a868-1a32d17cbb62",
+    "dae8f16c-cbd6-49f8-afcb-9392f55010bc",
+    "140de8e8-2dfd-4f87-8d58-aa02501cb5cc",
+    "0fbb6124-3b04-4b39-affe-18a2a481dcc4",
+    "42c81630-9af9-4897-ab6b-730695c5b244",
+    "5b9c7da8-6466-4aad-9d2d-cf184b787181",
+    "042c3729-d0fb-4a07-b1f4-da92e0f877a8",
+    "e6572329-b88e-4c32-86ea-8c669e5adab4"
+   ],
+   "6": [
+    "c6a69721-3463-4e92-a115-1526de523245",
+    "aab97c10-8e8e-4782-b7b5-97e0c6c5c370",
+    "02336761-3b70-473b-81b7-0b50177eab75",
+    "7ddf441c-8e21-452a-be92-23065cf1e970",
+    "c14fc4a7-7919-43fe-9507-824e3f11dfcf",
+    "6445275c-19f2-4b86-9573-1bb7d379c56c",
+    "6d08fc21-f151-4748-97f5-a6970b1144a4",
+    "1a88fbdd-6145-4925-91e1-7a9972b312b3",
+    "f458202c-0b9f-44a4-94d4-a53f1f9d0f4d",
+    "2de1af9f-6769-4b3c-ba05-69dcf7126df6"
+   ],
+   "7": [
+    "375c038d-5b05-4dc1-8c04-d1472e0b13df",
+    "47fa33b9-2916-4c69-82fa-8c349375d3c6",
+    "51a6ec29-91ac-4e61-a106-43f7dd7e9b74",
+    "c4916c60-eab2-4b2c-9f88-e01436fd9664",
+    "92af360f-32e0-4f50-9dc4-df381fda0b24",
+    "a5464710-d603-4078-974d-1925482e76d5",
+    "bfcaf36c-b926-4f00-a35a-948811d6446f",
+    "03c31ebe-98d1-4a52-8808-4b1222042918",
+    "c2ba048e-3a9f-41ba-838b-242956bdfcee",
+    "408d94c8-1c39-4008-9a4e-c330400093d6"
+   ],
+   "8": [
+    "a251eb3b-a3ad-4991-82bd-ae0eb2a6b8e7",
+    "47556f73-43cf-4f04-8df1-2c297534d72d",
+    "8ace123e-4a83-4fa6-ba7e-da6028c7ca20",
+    "3e7d32d2-f2c7-44cc-8bc8-8033a05baf26",
+    "f5b95867-af6e-4977-86d0-e60bef49a0f2",
+    "9471bb84-2273-453a-8c9b-61d5e0cc42f2",
+    "8a3e2d2f-1fc5-4fed-bba3-8f2323a4eb72",
+    "1a9a8d7f-7b71-46d9-8815-6729985b2090",
+    "5fb2af4f-d638-4ee9-a0e4-419620c1806d",
+    "7ac05d47-e351-4bad-8b72-b5242068c1e2"
+   ],
+   "9": [
+    "83478fc8-5513-49ad-97e2-fb44f3c4186a",
+    "834a6e7c-33de-4b12-b4ac-ed0d51aa08cb",
+    "65687c2b-a728-4136-8cf6-16d0f0571d59",
+    "cb6f1dd7-0a0a-406c-bf0e-301ed9c1ad28",
+    "d98df713-6298-45a7-b512-355e8e3ba01f",
+    "443b291e-a2d0-4836-9062-320c3e6b9084",
+    "71c2446d-76a7-4cd9-b41f-75918a919970",
+    "f436ad23-f0c5-4402-9d35-e4de251c3b6f",
+    "dca6db3d-a115-4d8b-8e86-73e6d03f487a",
+    "0ca84860-385b-45e2-bc03-f34bfff0c489"
+   ],
+   "10": [
+    "90e81ffd-c358-4522-b443-7e990703ba64",
+    "f4546ef7-ab82-470f-ad69-2d855b2a0149",
+    "9235e1ea-4236-4627-b4af-8931ea4fba7d",
+    "ea9659ee-e01d-43a9-8c6d-cec1391ab9de",
+    "c6cf4cd9-1345-43b3-8f0d-d9ba53c65b76",
+    "5649bd84-6db5-44a2-a73b-39805317935d",
+    "b207a1d7-7edc-4cb5-ae35-926e1535a545",
+    "a487b092-9097-4340-ada3-aab4f302bb92",
+    "ec12b32d-f81d-441e-b402-aaf3182311e0",
+    "edf940e5-333a-41f2-8507-788116e49323"
+   ],
+   "11": [
+    "1cba6350-1757-423c-885d-5ac3281287e9",
+    "d80b7c12-0fa8-4be2-9956-c1d8d896fa05",
+    "8a81aff0-13fa-419c-b0e6-d29691507df3",
+    "caf4e274-a5d1-453c-941c-fe8f871f0ec6",
+    "2115aad3-cda6-4fbf-8fc9-f28965266bb7",
+    "d37cc83d-6876-4308-afec-be61d773f56b",
+    "2e62daa3-c41a-45c3-8b80-a9c7fc55a4fc",
+    "13ba5257-73eb-4aaa-8cf2-03452f82b1e3",
+    "1daa4cdf-c88b-4722-a7de-4b6d64d224f9",
+    "ce8a823f-287b-4699-a990-2aae7fe0bd65"
+   ],
+   "12": [
+    "eb6227a8-d92a-4291-9432-8497a2a569ed",
+    "efe31d8d-989e-4636-8def-4d7ef42fd245",
+    "69e40bb8-3d30-4a98-9dc0-7680e95ac520",
+    "1ea8cf13-9634-424e-8b76-709ca6ccdd54",
+    "e2d5cdbb-96fc-4db5-9d84-c90e1b8fd761",
+    "f0af5f13-0e6a-4782-9ccf-d2c70e7647e4",
+    "1d46bd23-e3c9-43f7-b8fc-a701b2697bd4",
+    "a62f6fc5-0dcb-4e71-8ea3-c6dfac225f31",
+    "3f6ddf9c-1d82-4e73-9a99-d0146b1a0144",
+    "8d20763a-3409-4632-a44d-524851d99af0"
+   ]
+  }
+ },
+ "timeline": {
+  "run_id": "c14fc4a7-7919-43fe-9507-824e3f11dfcf",
+  "steps": [
+   {
+    "step": 1,
+    "input_tokens": 2180,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 146,
+    "reasoning_tokens": 47,
+    "context_tokens": 2180,
+    "growth_tokens": 0,
+    "repeated_tokens": 0,
+    "assistant_growth": 0,
+    "tool_growth": 0,
+    "increment_method": "none",
+    "cost": 0.0058200000000000005,
+    "latency_ms": 3536
+   },
+   {
+    "step": 2,
+    "input_tokens": 2359,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 66,
+    "reasoning_tokens": 0,
+    "context_tokens": 2359,
+    "growth_tokens": 179,
+    "repeated_tokens": 2180,
+    "assistant_growth": 129,
+    "tool_growth": 50,
+    "increment_method": "count_tokens",
+    "cost": 0.005378,
+    "latency_ms": 1612
+   },
+   {
+    "step": 3,
+    "input_tokens": 2467,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 17,
+    "reasoning_tokens": 0,
+    "context_tokens": 2467,
+    "growth_tokens": 108,
+    "repeated_tokens": 2359,
+    "assistant_growth": 93,
+    "tool_growth": 15,
+    "increment_method": "count_tokens",
+    "cost": 0.005104,
+    "latency_ms": 1467
+   }
+  ]
+ }
+}
