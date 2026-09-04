@@ -54,6 +54,9 @@ class Config:
     exec_max_output: int
     skills_dir: Path
     skills_max_chars: int
+    # None — параметр не отправляется: модели с адаптивным рассуждением
+    # (claude-opus-5) отклоняют temperature; бенчмарк задаёт 0 явно.
+    llm_temperature: float | None = None
 
 
 def mask_secret(secret: str) -> str:

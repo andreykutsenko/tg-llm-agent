@@ -10,6 +10,7 @@ from llms.protocol import (
     LLMResult,
     ToolCall,
     ToolSpec,
+    Usage,
     user_message,
 )
 
@@ -72,6 +73,23 @@ def build_messages(messages: list[dict]) -> list[dict]:
     return payload
 
 
+def _count(usage, field: str) -> int:
+    return int(getattr(usage, field, None) or 0)
+
+
+def parse_usage(response) -> Usage:
+    """Token counts of a Messages API response; a missing block gives zeros."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return Usage()
+    return Usage(
+        input_tokens=_count(usage, "input_tokens"),
+        output_tokens=_count(usage, "output_tokens"),
+        cached_input_tokens=_count(usage, "cache_read_input_tokens"),
+        cache_write_input_tokens=_count(usage, "cache_creation_input_tokens"),
+    )
+
+
 def parse_response(response) -> LLMResult:
     """Reduce a native Anthropic answer to the provider-independent result."""
     blocks = response.content
@@ -80,7 +98,7 @@ def parse_response(response) -> LLMResult:
         for block in blocks
         if getattr(block, "type", None) == "tool_use"
     )
-    return LLMResult(text=extract_text(blocks), tool_calls=calls)
+    return LLMResult(text=extract_text(blocks), tool_calls=calls, usage=parse_usage(response))
 
 
 async def generate_step(
@@ -98,6 +116,8 @@ async def generate_step(
         "messages": build_messages(messages),
         "max_tokens": config.llm_max_tokens,
     }
+    if config.llm_temperature is not None:
+        request["temperature"] = config.llm_temperature
     if tools:
         request["tools"] = [describe_tool(tool) for tool in tools]
     try:
