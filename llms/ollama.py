@@ -13,6 +13,7 @@ from llms.protocol import (
     LLMResult,
     ToolCall,
     ToolSpec,
+    Usage,
     user_message,
 )
 
@@ -79,11 +80,32 @@ def _parse_arguments(raw: str | None) -> dict:
     return arguments
 
 
+def _first_count(usage, *fields: str) -> int:
+    for field in fields:
+        value = getattr(usage, field, None)
+        if value:
+            return int(value)
+    return 0
+
+
+def parse_usage(response) -> Usage:
+    """Token counts: native Ollama names first, then the OpenAI-compatible ones."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return Usage()
+    details = getattr(usage, "completion_tokens_details", None)
+    return Usage(
+        input_tokens=_first_count(usage, "prompt_eval_count", "prompt_tokens"),
+        output_tokens=_first_count(usage, "eval_count", "completion_tokens"),
+        reasoning_tokens=_first_count(details, "reasoning_tokens") if details else 0,
+    )
+
+
 def parse_response(response) -> LLMResult:
     """Reduce an OpenAI-compatible answer to the provider-independent result."""
     choices = response.choices
     if not choices:
-        return LLMResult()
+        return LLMResult(usage=parse_usage(response))
     message = choices[0].message
     raw_calls = getattr(message, "tool_calls", None) or []
     calls = tuple(
@@ -94,7 +116,9 @@ def parse_response(response) -> LLMResult:
         )
         for index, call in enumerate(raw_calls)
     )
-    return LLMResult(text=message.content or "", tool_calls=calls)
+    return LLMResult(
+        text=message.content or "", tool_calls=calls, usage=parse_usage(response)
+    )
 
 
 async def generate_step(
@@ -112,6 +136,8 @@ async def generate_step(
         "messages": build_messages(messages, config),
         "max_tokens": config.llm_max_tokens,
     }
+    if config.llm_temperature is not None:
+        request["temperature"] = config.llm_temperature
     if tools:
         request["tools"] = [describe_tool(tool) for tool in tools]
     try:

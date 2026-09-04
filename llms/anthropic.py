@@ -10,8 +10,14 @@ from llms.protocol import (
     LLMResult,
     ToolCall,
     ToolSpec,
+    Usage,
     user_message,
 )
+
+
+# Константный префикс запроса (описания инструментов и system) не меняется
+# между витками и задачами, поэтому помечается для prompt caching.
+CACHE_CONTROL = {"type": "ephemeral"}
 
 
 def describe_tool(tool: ToolSpec) -> dict:
@@ -21,6 +27,19 @@ def describe_tool(tool: ToolSpec) -> dict:
         "description": tool.description,
         "input_schema": tool.parameters,
     }
+
+
+def describe_tools(tools: tuple[ToolSpec, ...]) -> list[dict]:
+    """Tool list with a cache breakpoint after the last one."""
+    described = [describe_tool(tool) for tool in tools]
+    if described:
+        described[-1] = {**described[-1], "cache_control": CACHE_CONTROL}
+    return described
+
+
+def system_blocks(system_prompt: str) -> list[dict]:
+    """System prompt as one cached text block."""
+    return [{"type": "text", "text": system_prompt, "cache_control": CACHE_CONTROL}]
 
 
 def extract_text(content_blocks) -> str:
@@ -72,6 +91,25 @@ def build_messages(messages: list[dict]) -> list[dict]:
     return payload
 
 
+def _count(usage, field: str) -> int:
+    return int(getattr(usage, field, None) or 0)
+
+
+def parse_usage(response) -> Usage:
+    """Token counts of a Messages API response; a missing block gives zeros."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return Usage()
+    details = getattr(usage, "output_tokens_details", None)
+    return Usage(
+        input_tokens=_count(usage, "input_tokens"),
+        output_tokens=_count(usage, "output_tokens"),
+        cached_input_tokens=_count(usage, "cache_read_input_tokens"),
+        cache_write_input_tokens=_count(usage, "cache_creation_input_tokens"),
+        reasoning_tokens=_count(details, "thinking_tokens") if details is not None else 0,
+    )
+
+
 def parse_response(response) -> LLMResult:
     """Reduce a native Anthropic answer to the provider-independent result."""
     blocks = response.content
@@ -80,7 +118,7 @@ def parse_response(response) -> LLMResult:
         for block in blocks
         if getattr(block, "type", None) == "tool_use"
     )
-    return LLMResult(text=extract_text(blocks), tool_calls=calls)
+    return LLMResult(text=extract_text(blocks), tool_calls=calls, usage=parse_usage(response))
 
 
 async def generate_step(
@@ -94,12 +132,14 @@ async def generate_step(
     )
     request = {
         "model": config.llm_model,
-        "system": config.system_prompt,
+        "system": system_blocks(config.system_prompt),
         "messages": build_messages(messages),
         "max_tokens": config.llm_max_tokens,
     }
+    if config.llm_effort is not None:
+        request["output_config"] = {"effort": config.llm_effort}
     if tools:
-        request["tools"] = [describe_tool(tool) for tool in tools]
+        request["tools"] = describe_tools(tools)
     try:
         response = await client.messages.create(**request)
     except APITimeoutError as error:
@@ -114,6 +154,30 @@ async def generate_step(
         await client.close()
 
     return parse_response(response)
+
+
+async def count_tokens(
+    messages: list[dict],
+    tools: tuple[ToolSpec, ...],
+    config: Config,
+    system: str | None = None,
+) -> int:
+    """Free token count of a payload fragment with the model's own tokenizer."""
+    client = AsyncAnthropic(
+        api_key=config.llm_api_key, timeout=config.llm_timeout_seconds, max_retries=0
+    )
+    request = {"model": config.llm_model, "messages": build_messages(messages)}
+    if system:
+        request["system"] = system
+    if tools:
+        request["tools"] = [describe_tool(tool) for tool in tools]
+    try:
+        response = await client.messages.count_tokens(**request)
+    except (APITimeoutError, APIConnectionError, APIError) as error:
+        raise LLMError(f"count_tokens не удался: {error}") from error
+    finally:
+        await client.close()
+    return int(response.input_tokens)
 
 
 async def generate(prompt: str, config: Config) -> str:

@@ -2,12 +2,14 @@
 
 import dataclasses
 import logging
+import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 
 import tools
 from config import Config, ConfigError
 from llms import assistant_message, call_llm_step, tool_message, user_message
+from observability import set_current_step
 
 SKILLS_SUFFIX = ".md"
 AGENT_INSTRUCTIONS = (
@@ -103,8 +105,10 @@ async def run_agent(user_text: str, config: Config) -> AgentResult:
     specs = tools.tool_specs()
     messages = [user_message(user_text)]
     partial_texts: list[str] = []
+    run_id = str(uuid.uuid4())
 
     for step in range(1, config.agent_max_steps + 1):
+        set_current_step(run_id, step)
         result = await call_llm_step(messages, specs, step_config)
         if not result.wants_tools:
             logger.info("Шаг %d/%d: финальный ответ модели", step, config.agent_max_steps)

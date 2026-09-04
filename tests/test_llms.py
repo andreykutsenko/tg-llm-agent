@@ -69,7 +69,9 @@ async def test_anthropic_provider_switches_client(monkeypatch):
     assert len(ollama_client.calls) == 1
     assert len(anthropic_client.calls) == 1
     assert anthropic_client.calls[0]["model"] == "claude-opus-5"
-    assert anthropic_client.calls[0]["system"] == make_config().system_prompt
+    assert anthropic_client.calls[0]["system"] == [
+        {"type": "text", "text": make_config().system_prompt, "cache_control": {"type": "ephemeral"}}
+    ]
     assert anthropic_client.calls[0]["messages"] == [
         {"role": "user", "content": "вопрос"}
     ]
@@ -154,6 +156,7 @@ async def test_both_providers_yield_the_same_tool_call_shape(monkeypatch):
             "name": "exec",
             "description": "запуск команды",
             "input_schema": {"type": "object"},
+            "cache_control": {"type": "ephemeral"},
         }
     ]
 

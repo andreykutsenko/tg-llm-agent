@@ -27,6 +27,7 @@ MAX_AGENT_MAX_STEPS = 10
 DEFAULT_EXEC_ALLOWLIST = ("curl", "cat", "ls", "date", "head", "tail", "wc", "grep")
 DEFAULT_EXEC_TIMEOUT_SECONDS = 20.0
 DEFAULT_EXEC_MAX_OUTPUT = 4000
+DEFAULT_EXEC_MAX_LINES = 30
 
 DEFAULT_SKILLS_DIR = PROJECT_ROOT / "skills"
 DEFAULT_SKILLS_MAX_CHARS = 8000
@@ -54,6 +55,15 @@ class Config:
     exec_max_output: int
     skills_dir: Path
     skills_max_chars: int
+    # None — параметр не отправляется. temperature поддерживает только Ollama:
+    # в Anthropic API 1.0 параметры сэмплинга удалены. effort — только Anthropic.
+    llm_temperature: float | None = None
+    llm_effort: str | None = None
+    # Бенчмарк считает токены добавленных блоков через count_tokens — два
+    # лишних вызова на виток; боту в Telegram это не нужно.
+    llm_count_tokens: bool = False
+    # Многострочный вывод exec режется по строкам (голова + хвост), не по символам.
+    exec_max_lines: int = DEFAULT_EXEC_MAX_LINES
 
 
 def mask_secret(secret: str) -> str:
@@ -199,6 +209,9 @@ def load_config() -> Config:
                 "EXEC_MAX_OUTPUT", DEFAULT_EXEC_MAX_OUTPUT, lambda raw: int(raw)
             )
         ),
+        exec_max_lines=int(
+            _read_positive_number("EXEC_MAX_LINES", DEFAULT_EXEC_MAX_LINES, lambda raw: int(raw))
+        ),
         skills_dir=_read_directory("SKILLS_DIR", DEFAULT_SKILLS_DIR),
         skills_max_chars=int(
             _read_positive_number(
@@ -228,6 +241,7 @@ def describe_config(config: Config) -> str:
         f"exec_timeout={config.exec_timeout_seconds}s "
         f"exec_workdir={config.exec_workdir} "
         f"exec_max_output={config.exec_max_output} "
+        f"exec_max_lines={config.exec_max_lines} "
         f"skills_dir={config.skills_dir} "
         f"skills_max_chars={config.skills_max_chars} "
         f"allowed_ids={allowed_ids} "

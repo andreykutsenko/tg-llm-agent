@@ -30,11 +30,32 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
+class Usage:
+    """Token accounting of one model call; a provider without data reports zeros."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_input_tokens: int = 0
+    latency_ms: int = 0
+    # Запись в кэш Anthropic тарифицируется дороже обычного ввода (×1.25),
+    # поэтому без этого поля стоимость замера «после» была бы занижена.
+    cache_write_input_tokens: int = 0
+    # Токены рассуждения: часть output_tokens, отдаётся провайдером отдельно
+    # (Anthropic: output_tokens_details.thinking_tokens); без мышления — 0.
+    reasoning_tokens: int = 0
+
+    @property
+    def is_reported(self) -> bool:
+        return bool(self.input_tokens or self.output_tokens)
+
+
+@dataclass(frozen=True)
 class LLMResult:
     """Either a final text answer or a list of tool calls the model asks for."""
 
     text: str = ""
     tool_calls: tuple[ToolCall, ...] = field(default_factory=tuple)
+    usage: Usage = field(default_factory=Usage)
 
     @property
     def wants_tools(self) -> bool:

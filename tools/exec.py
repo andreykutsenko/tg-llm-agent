@@ -35,7 +35,17 @@ FALLBACK_PATH = "/usr/local/bin:/usr/bin:/bin"
 FALLBACK_LANG = "C.UTF-8"
 SECRET_FILE_NAME = ".env"
 SECRET_FILE_EXCEPTIONS = (".env.example",)
-TRUNCATION_NOTICE = "[вывод обрезан до {limit} символов]"
+# Голова и хвост вместо первых N символов: начало показывает структуру,
+# конец — итог; пометка говорит модели, сколько именно пропущено.
+HEAD_SHARE = 2 / 3
+LINE_TRUNCATION_NOTICE = (
+    "[... пропущено {skipped} строк из {total} ({chars} символов); "
+    "показаны первые {head} и последние {tail} строк ...]"
+)
+CHAR_TRUNCATION_NOTICE = (
+    "[... пропущено {skipped} символов из {total}; показаны начало и конец, "
+    "всего {limit} символов ...]"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,18 +133,51 @@ def _minimal_env() -> dict[str, str]:
     return {name: os.environ.get(name) or defaults[name] for name in MINIMAL_ENV_VARS}
 
 
-def _clip(text: str, budget: int) -> tuple[str, int]:
-    if budget <= 0:
-        return ("", 0)
+def _split_head_tail(limit: int) -> tuple[int, int]:
+    head = max(1, round(limit * HEAD_SHARE))
+    return (head, max(limit - head, 0))
+
+
+def _clip_lines(text: str, max_lines: int) -> str:
+    lines = text.splitlines()
+    if len(lines) <= max_lines:
+        return text
+    head, tail = _split_head_tail(max_lines)
+    skipped = lines[head : len(lines) - tail] if tail else lines[head:]
+    notice = LINE_TRUNCATION_NOTICE.format(
+        skipped=len(skipped),
+        total=len(lines),
+        chars=sum(len(line) + 1 for line in skipped),
+        head=head,
+        tail=tail,
+    )
+    kept_tail = lines[len(lines) - tail :] if tail else []
+    return "\n".join(lines[:head] + [notice] + kept_tail)
+
+
+def _clip_chars(text: str, budget: int) -> tuple[str, int]:
     if len(text) <= budget:
         return (text, len(text))
-    notice = TRUNCATION_NOTICE.format(limit=budget)
-    return (f"{text[:budget]}\n{notice}", budget)
+    head, tail = _split_head_tail(budget)
+    notice = CHAR_TRUNCATION_NOTICE.format(
+        skipped=len(text) - head - tail, total=len(text), limit=budget
+    )
+    kept_tail = text[len(text) - tail :] if tail else ""
+    return (f"{text[:head]}\n{notice}\n{kept_tail}", budget)
+
+
+def _clip(text: str, budget: int, max_lines: int) -> tuple[str, int]:
+    """Lines first, then characters; the caller gets how much of the budget was used."""
+    if budget <= 0:
+        return ("", 0)
+    return _clip_chars(_clip_lines(text, max_lines), budget)
 
 
 def _render(completed: subprocess.CompletedProcess, config: Config) -> str:
-    stdout, used = _clip(completed.stdout or "", config.exec_max_output)
-    stderr, _ = _clip(completed.stderr or "", config.exec_max_output - used)
+    stdout, used = _clip(completed.stdout or "", config.exec_max_output, config.exec_max_lines)
+    stderr, _ = _clip(
+        completed.stderr or "", config.exec_max_output - used, config.exec_max_lines
+    )
     return (
         f"exit_code: {completed.returncode}\n"
         f"stdout:\n{stdout or '(пусто)'}\n"

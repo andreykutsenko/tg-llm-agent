@@ -1,0 +1,358 @@
+{
+ "meta": {
+  "label": "before-haiku",
+  "provider": "anthropic",
+  "model": "claude-haiku-4-5",
+  "effort": null,
+  "runs": 5,
+  "task_ids": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12
+  ],
+  "agent_max_steps": 8,
+  "exec_max_output": 4000,
+  "started_at": 1788503077.87625,
+  "system_prompt_chars": 3502,
+  "system_prompt_tokens": 1436,
+  "tool_descriptions_chars": 589,
+  "tool_descriptions_tokens": 1726
+ },
+ "summary": {
+  "label": "before-haiku",
+  "provider": "anthropic",
+  "model": "claude-haiku-4-5",
+  "effort": null,
+  "runs": 5,
+  "task_count": 12,
+  "outcome_count": 60,
+  "success_rate_local": 0.96,
+  "success_rate_network": 1.0,
+  "success_rate_by_run": [
+   0.9,
+   1.0,
+   0.9,
+   1.0,
+   1.0
+  ],
+  "tokens": {
+   "input": 428293,
+   "output": 6777,
+   "cached": 0,
+   "cache_write": 0,
+   "reasoning": 0
+  },
+  "cost": {
+   "input": 0.4282929999999999,
+   "output": 0.03388499999999998,
+   "cached": 0.0,
+   "cache_write": 0.0,
+   "total": 0.4621779999999999
+  },
+  "avg_cost_per_run": 0.007702966666666666,
+  "avg_tokens_per_run": 7251.166666666667,
+  "cache_hit_rate": 0.0,
+  "tools": [
+   {
+    "name": "exec",
+    "calls": 68,
+    "output_chars": 29576,
+    "estimated_tokens": 10468.0
+   }
+  ],
+  "repeated_tokens": 218831,
+  "repeated_share": 0.5109376057979,
+  "most_expensive_step": [
+   "16d76829-34ce-46f7-a255-c37753bff7e6",
+   2,
+   0.0049629999999999995
+  ],
+  "growth_per_step": {
+   "system": 0.0,
+   "tools": 0.0,
+   "user": 0.0,
+   "assistant": 102.77941176470588,
+   "tool": 153.94117647058823
+  },
+  "context_constants": {
+   "system": 1436.0,
+   "tools": 1726.0,
+   "user": 38.083333333333485
+  },
+  "increment_methods": {
+   "count_tokens": 68
+  },
+  "per_task": [
+   {
+    "task_id": 1,
+    "slug": "arithmetic",
+    "network": false,
+    "runs": 5,
+    "successes": 5,
+    "avg_cost": 0.0071686,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 3355.6
+   },
+   {
+    "task_id": 2,
+    "slug": "line-count",
+    "network": false,
+    "runs": 5,
+    "successes": 5,
+    "avg_cost": 0.006851,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 3301.0
+   },
+   {
+    "task_id": 3,
+    "slug": "line-number",
+    "network": false,
+    "runs": 5,
+    "successes": 5,
+    "avg_cost": 0.006896000000000001,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 3324.0
+   },
+   {
+    "task_id": 4,
+    "slug": "list-files",
+    "network": false,
+    "runs": 5,
+    "successes": 5,
+    "avg_cost": 0.00934,
+    "avg_steps": 2.6,
+    "avg_context_tokens": 3415.4
+   },
+   {
+    "task_id": 5,
+    "slug": "today",
+    "network": false,
+    "runs": 5,
+    "successes": 5,
+    "avg_cost": 0.006843,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 3293.0
+   },
+   {
+    "task_id": 6,
+    "slug": "csv-sum",
+    "network": false,
+    "runs": 5,
+    "successes": 4,
+    "avg_cost": 0.0069532,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 3323.2
+   },
+   {
+    "task_id": 7,
+    "slug": "largest-file",
+    "network": false,
+    "runs": 5,
+    "successes": 4,
+    "avg_cost": 0.0109458,
+    "avg_steps": 3.0,
+    "avg_context_tokens": 3569.2
+   },
+   {
+    "task_id": 8,
+    "slug": "failing-command",
+    "network": false,
+    "runs": 5,
+    "successes": 5,
+    "avg_cost": 0.007156,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 3327.0
+   },
+   {
+    "task_id": 9,
+    "slug": "outside-allowlist",
+    "network": false,
+    "runs": 5,
+    "successes": 5,
+    "avg_cost": 0.007213,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 3327.0
+   },
+   {
+    "task_id": 10,
+    "slug": "compare-line-counts",
+    "network": false,
+    "runs": 5,
+    "successes": 5,
+    "avg_cost": 0.006962,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 3342.0
+   },
+   {
+    "task_id": 11,
+    "slug": "weather",
+    "network": true,
+    "runs": 5,
+    "successes": 5,
+    "avg_cost": 0.0074719999999999995,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 3482.0
+   },
+   {
+    "task_id": 12,
+    "slug": "http-api",
+    "network": true,
+    "runs": 5,
+    "successes": 5,
+    "avg_cost": 0.008635,
+    "avg_steps": 2.0,
+    "avg_context_tokens": 4833.0
+   }
+  ],
+  "llm_calls": 128,
+  "usage_missing_calls": 0,
+  "task_runs": {
+   "1": [
+    "4a83668f-9b22-4c8d-be71-35eadc265682",
+    "c7f4491f-e669-4614-a8da-17c735edcee0",
+    "436e541a-9e05-4ce5-b2b4-d30b836565b7",
+    "6b8ece94-50c9-400c-8348-2cae2306e6c4",
+    "ab39d1bf-a18f-4f19-8cc5-039e6fcc1902"
+   ],
+   "2": [
+    "68d2f0d8-51e9-414b-8858-d64dadf54292",
+    "1d6bbfb6-cc7f-4fae-a76f-7cf67709d4c7",
+    "3c62d3a5-eb62-418a-89fb-5a7bf2c56187",
+    "135a42fe-fe22-4976-9e54-2e0c26e89136",
+    "81622202-edb1-4016-b13a-2380cb793574"
+   ],
+   "3": [
+    "d6474746-a082-4466-828a-eea4c1b4e280",
+    "a88868b0-7614-4548-b844-04d9479e89c3",
+    "e5ecbe8d-efa0-4eca-9ace-1dbad385d133",
+    "3295318e-cc54-4d8c-a720-036cd9b22660",
+    "a105ef94-d3eb-4ca3-bdc8-812b744cb142"
+   ],
+   "4": [
+    "eb7d25f9-c4f3-4bcc-8fe4-46b18730e743",
+    "906984d3-6bf3-4179-b837-9492482da0bf",
+    "42fbddb7-41d1-4162-82d6-1d58f9182cdd",
+    "78f9db93-0d0b-4199-96f6-b413b7de6412",
+    "600ffb04-5665-4a63-b248-ff0770d62db9"
+   ],
+   "5": [
+    "661b377d-d0c0-445a-b13a-42246c08be1c",
+    "31e11b91-0d81-4057-a42d-127233cda3b8",
+    "99dbf7aa-ac6c-413c-9db3-b436a28b88ff",
+    "39c1df09-60ce-40c4-944a-a213d36adbe3",
+    "9ef59c52-119e-4ff1-92b8-f2c7626ce95b"
+   ],
+   "6": [
+    "f18da9b9-4db7-4153-8a6d-4771e0dd7d26",
+    "e0128118-6007-4461-b08e-ac6afbe85c5a",
+    "ade9ffb6-1455-4040-8161-c7d4ae45ab33",
+    "64b96793-66fc-43ee-81af-1daa0fe78be2",
+    "797fcc7f-ca03-4b3d-9e12-fe0c8aed0eec"
+   ],
+   "7": [
+    "71140c31-1e8d-4c17-80fd-45b8d85fdc69",
+    "0b2fbe27-aa41-4cfb-9bdf-be81608cf02e",
+    "6a5ae9f3-a3bb-4440-94e6-82baffc1ad39",
+    "3e71e706-5816-45a6-8a47-1fbac23fac6a",
+    "4f162c68-cf34-4359-abd3-de98bc8f1a87"
+   ],
+   "8": [
+    "a4dcbc4a-ddc9-4635-b2a4-8383ba64271b",
+    "0a2ed541-019c-4ddb-a9f1-c41af63d613b",
+    "dadb93e5-3044-4368-99c8-6f0a159c5239",
+    "0b39b48c-ea50-4059-b3a2-b1ce6459befb",
+    "b0eb7b23-a958-427e-bc98-f4788441da23"
+   ],
+   "9": [
+    "ba91f1af-c4e3-4fc8-bf9b-221bc2922617",
+    "6cb5e8d9-234a-40a0-b8f5-c26b561dfe04",
+    "823ecbcb-e0ec-4909-a9cb-969a2b5f8850",
+    "9d1f5d3a-d5b1-4783-9b6f-2de82e22975e",
+    "25e8cb67-f0f2-4b7c-a8e5-0a2960cbf6f8"
+   ],
+   "10": [
+    "6b838939-4746-4448-ba89-8e96de785b2c",
+    "f739c839-6d44-48d4-a3cf-dd8d20cd2db2",
+    "09d6987b-cf42-48dc-a890-390f45427749",
+    "69ad425e-f2fd-4778-98f5-83e7bddd8928",
+    "e3d17bc7-083b-4ef5-a32a-6616547d6997"
+   ],
+   "11": [
+    "2f937265-4330-4132-9810-c1918a4334c2",
+    "7f233fb3-6367-4c20-97a4-1105cb4f4af3",
+    "70fc1f9c-3857-4564-8d35-a084b38dc512",
+    "4662569e-ba11-4245-a6d6-dd7f0125bc61",
+    "29e7ead7-6953-466d-a628-dbfc0c4d80c3"
+   ],
+   "12": [
+    "d091b9fa-c902-4273-8481-291338256539",
+    "16d76829-34ce-46f7-a255-c37753bff7e6",
+    "2ebe7ebc-a48f-44ad-b87f-deafa7cc3a69",
+    "a0ae491a-5766-4672-9a6e-1f2f1a2cdbf6",
+    "a7f1fb7c-fbb1-4469-bee6-5f12253f5b4c"
+   ]
+  }
+ },
+ "timeline": {
+  "run_id": "71140c31-1e8d-4c17-80fd-45b8d85fdc69",
+  "steps": [
+   {
+    "step": 1,
+    "input_tokens": 3205,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 79,
+    "reasoning_tokens": 0,
+    "context_tokens": 3205,
+    "growth_tokens": 0,
+    "repeated_tokens": 0,
+    "assistant_growth": 0,
+    "tool_growth": 0,
+    "increment_method": "none",
+    "cost": 0.0036,
+    "latency_ms": 1355
+   },
+   {
+    "step": 2,
+    "input_tokens": 3364,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 72,
+    "reasoning_tokens": 0,
+    "context_tokens": 3364,
+    "growth_tokens": 159,
+    "repeated_tokens": 3205,
+    "assistant_growth": 110,
+    "tool_growth": 49,
+    "increment_method": "count_tokens",
+    "cost": 0.003724,
+    "latency_ms": 1249
+   },
+   {
+    "step": 3,
+    "input_tokens": 3619,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 22,
+    "reasoning_tokens": 0,
+    "context_tokens": 3619,
+    "growth_tokens": 255,
+    "repeated_tokens": 3364,
+    "assistant_growth": 107,
+    "tool_growth": 148,
+    "increment_method": "count_tokens",
+    "cost": 0.0037289999999999997,
+    "latency_ms": 1043
+   }
+  ]
+ }
+}
