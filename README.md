@@ -233,11 +233,12 @@ INFO harness: Шаг 2/8: финальный ответ модели
 Содержимое команд и их вывода в файл не попадает — только размеры.
 `cached_input_tokens > 0` означает, что prompt caching сработал.
 
-Последние события и сумма за всё время:
+Последние события и сводка за всё время:
 
 ```bash
 tail -3 telemetry/events.jsonl
-.venv/bin/python -c "import json; e=[json.loads(l) for l in open('telemetry/events.jsonl')]; m=[x for x in e if x['event']=='llm_call']; print(f'вызовов {len(m)}, потрачено \${sum(x[\"cost\"] for x in m):.4f}, из кэша {sum(x[\"cached_input_tokens\"] for x in m)} tok')"
+python cost.py                          # сводка: вызовы, токены, кэш, потрачено
+python cost.py telemetry/before.events.jsonl   # или по конкретному замеру
 ```
 
 Сбой записи телеметрии не роняет бота: в лог уходит предупреждение, ответ
