@@ -20,13 +20,16 @@ from bench.paths import (
     outcomes_path,
 )
 from bench.tasks import BenchTask, select_tasks
+import llms
+import tools
 from config import Config, load_config
-from harness import AgentResult, run_agent
+from harness import AgentResult, build_system_prompt, load_skills, run_agent
 from observability import current_step, recorder
 
-DEFAULT_RUNS = 3
+DEFAULT_RUNS = 5
 DEFAULT_BENCH_MODEL = "claude-haiku-4-5"
-DEFAULT_BENCH_TEMPERATURE = 0.0
+# claude-haiku-4-5 отвечает 400 на output_config.effort, поэтому по умолчанию не шлём.
+DEFAULT_BENCH_EFFORT = ""
 ANSWER_EXCERPT_CHARS = 300
 
 logger = logging.getLogger(__name__)
@@ -57,12 +60,17 @@ class BenchMeta:
     label: str
     provider: str
     model: str
-    temperature: float | None
+    effort: str | None
     runs: int
     task_ids: tuple[int, ...]
     agent_max_steps: int
     exec_max_output: int
     started_at: float
+    # Константы контекста, одинаковые на каждом витке; считаются один раз.
+    system_prompt_chars: int = 0
+    system_prompt_tokens: int = 0
+    tool_descriptions_chars: int = 0
+    tool_descriptions_tokens: int = 0
 
 
 def judge(task: BenchTask, result: AgentResult | None, error: str) -> tuple[bool, bool]:
@@ -73,9 +81,30 @@ def judge(task: BenchTask, result: AgentResult | None, error: str) -> tuple[bool
     return (check_passed, check_passed and not error and not result.limit_reached)
 
 
-def bench_config(config: Config, model: str, temperature: float | None) -> Config:
-    """The measurement pins the model and temperature; everything else is the bot's config."""
-    return dataclasses.replace(config, llm_model=model, llm_temperature=temperature)
+def bench_config(config: Config, model: str, effort: str | None) -> Config:
+    """The measurement pins the model and effort; everything else is the bot's config."""
+    return dataclasses.replace(config, llm_model=model, llm_effort=effort, llm_count_tokens=True)
+
+
+PROBE_MESSAGE = "."
+
+
+async def measure_constants(config: Config) -> dict:
+    """Sizes of the system prompt (with skills) and tool descriptions, once per measurement."""
+    system_prompt = build_system_prompt(config, load_skills(config))
+    specs = tools.tool_specs()
+    tool_descriptions = json.dumps([dataclasses.asdict(spec) for spec in specs], ensure_ascii=False)
+    probe = [llms.user_message(PROBE_MESSAGE)]
+    with_system = await llms.count_tokens(probe, (), config, system=system_prompt)
+    with_tools = await llms.count_tokens(probe, specs, config, system=system_prompt)
+    probe_only = await llms.count_tokens(probe, (), config)
+    countable = None not in (with_system, with_tools, probe_only)
+    return {
+        "system_prompt_chars": len(system_prompt),
+        "system_prompt_tokens": with_system - probe_only if countable else 0,
+        "tool_descriptions_chars": len(tool_descriptions),
+        "tool_descriptions_tokens": with_tools - with_system if countable else 0,
+    }
 
 
 def _run_id_after(previous) -> str:
@@ -186,7 +215,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runs", type=int, default=DEFAULT_RUNS, help="прогонов на задачу")
     parser.add_argument("--model", default=DEFAULT_BENCH_MODEL, help="модель замера")
     parser.add_argument(
-        "--temperature", type=float, default=DEFAULT_BENCH_TEMPERATURE, help="temperature запроса"
+        "--effort", default=DEFAULT_BENCH_EFFORT, help="output_config.effort; пусто — не отправлять"
     )
     parser.add_argument("--tasks", default="", help="id задач через запятую; пусто — все")
     parser.add_argument("--no-network", action="store_true", help="пропустить сетевые задачи")
@@ -206,32 +235,37 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Замер {args.label!r} уже есть: {measurement_file}; выберите другой --label "
               "или укажите --force.", file=sys.stderr)
         return 2
-    config = bench_config(load_config(), args.model, args.temperature)
+    config = bench_config(load_config(), args.model, args.effort or None)
     tasks = select_tasks(_parse_task_ids(args.tasks), include_network=not args.no_network)
+    constants = asyncio.run(measure_constants(config))
     meta = BenchMeta(
         label=args.label,
         provider=config.llm_provider,
         model=config.llm_model,
-        temperature=config.llm_temperature,
+        effort=config.llm_effort,
         runs=args.runs,
         task_ids=tuple(task.id for task in tasks),
         agent_max_steps=config.agent_max_steps,
         exec_max_output=config.exec_max_output,
         started_at=time.time(),
+        **constants,
     )
     events_file = events_path(args.telemetry_dir, args.label)
     events_file.parent.mkdir(parents=True, exist_ok=True)
     events_file.write_text("", encoding="utf-8")
     recorder.configure(events_file)
-    print(f"Замер {args.label}: модель {meta.model} ({meta.provider}), temperature={meta.temperature}, "
-          f"задач {len(tasks)}, прогонов {args.runs}")
+    print(f"Замер {args.label}: модель {meta.model} ({meta.provider}), effort={meta.effort}, "
+          f"задач {len(tasks)}, прогонов {args.runs}; system prompt {meta.system_prompt_tokens} tok, "
+          f"описания инструментов {meta.tool_descriptions_tokens} tok")
     outcomes = asyncio.run(run_benchmark(tasks, args.runs, config, _print_progress))
     write_jsonl(outcomes_path(args.telemetry_dir, args.label), [dataclasses.asdict(o) for o in outcomes])
     measurement = build_measurement(meta, outcomes, report.read_jsonl(events_file))
     write_measurement(measurement_file, measurement)
     local = success_rate(outcomes, network=False)
     network = success_rate(outcomes, network=True)
-    print(f"Локальные задачи: success rate {local:.0%}" if local is not None else "Локальных задач нет")
+    by_run = measurement["summary"]["success_rate_by_run"]
+    spread = f" (по прогонам: {', '.join(f'{r:.0%}' for r in by_run)})" if len(by_run) > 1 else ""
+    print(f"Локальные задачи: success rate {local:.0%}{spread}" if local is not None else "Локальных задач нет")
     if network is not None:
         print(f"Сетевые задачи (flaky): success rate {network:.0%}")
     print(f"Агрегат: {measurement_file}\nСырьё:   {events_file}")

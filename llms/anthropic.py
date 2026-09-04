@@ -82,11 +82,13 @@ def parse_usage(response) -> Usage:
     usage = getattr(response, "usage", None)
     if usage is None:
         return Usage()
+    details = getattr(usage, "output_tokens_details", None)
     return Usage(
         input_tokens=_count(usage, "input_tokens"),
         output_tokens=_count(usage, "output_tokens"),
         cached_input_tokens=_count(usage, "cache_read_input_tokens"),
         cache_write_input_tokens=_count(usage, "cache_creation_input_tokens"),
+        reasoning_tokens=_count(details, "thinking_tokens") if details is not None else 0,
     )
 
 
@@ -116,8 +118,8 @@ async def generate_step(
         "messages": build_messages(messages),
         "max_tokens": config.llm_max_tokens,
     }
-    if config.llm_temperature is not None:
-        request["temperature"] = config.llm_temperature
+    if config.llm_effort is not None:
+        request["output_config"] = {"effort": config.llm_effort}
     if tools:
         request["tools"] = [describe_tool(tool) for tool in tools]
     try:
@@ -134,6 +136,30 @@ async def generate_step(
         await client.close()
 
     return parse_response(response)
+
+
+async def count_tokens(
+    messages: list[dict],
+    tools: tuple[ToolSpec, ...],
+    config: Config,
+    system: str | None = None,
+) -> int:
+    """Free token count of a payload fragment with the model's own tokenizer."""
+    client = AsyncAnthropic(
+        api_key=config.llm_api_key, timeout=config.llm_timeout_seconds, max_retries=0
+    )
+    request = {"model": config.llm_model, "messages": build_messages(messages)}
+    if system:
+        request["system"] = system
+    if tools:
+        request["tools"] = [describe_tool(tool) for tool in tools]
+    try:
+        response = await client.messages.count_tokens(**request)
+    except (APITimeoutError, APIConnectionError, APIError) as error:
+        raise LLMError(f"count_tokens не удался: {error}") from error
+    finally:
+        await client.close()
+    return int(response.input_tokens)
 
 
 async def generate(prompt: str, config: Config) -> str:

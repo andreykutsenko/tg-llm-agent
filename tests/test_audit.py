@@ -88,26 +88,43 @@ def test_reasoning_tokens_are_read_when_the_provider_reports_them():
     assert ollama_provider.parse_response(response).usage.reasoning_tokens == 30
 
 
-def test_anthropic_reasoning_tokens_are_zero_because_they_sit_inside_output():
+def test_anthropic_thinking_tokens_go_to_reasoning_tokens():
     response = anthropic_response("ok")
-    response.usage = SimpleNamespace(input_tokens=5, output_tokens=500)
+    response.usage = SimpleNamespace(
+        input_tokens=5, output_tokens=500, output_tokens_details=SimpleNamespace(thinking_tokens=420)
+    )
+    without_details = anthropic_response("ok")
+    without_details.usage = SimpleNamespace(input_tokens=5, output_tokens=500)
 
     usage = anthropic_provider.parse_response(response).usage
 
-    assert (usage.output_tokens, usage.reasoning_tokens) == (500, 0)
+    assert (usage.output_tokens, usage.reasoning_tokens) == (500, 420)
+    assert anthropic_provider.parse_response(without_details).usage.reasoning_tokens == 0
 
 
-async def test_temperature_is_sent_only_when_configured(monkeypatch):
+async def test_anthropic_gets_effort_but_never_temperature(monkeypatch):
     client = FakeClient(response=anthropic_response("ok"))
     monkeypatch.setattr(anthropic_provider, "AsyncAnthropic", lambda **kwargs: client)
-    base = make_config(llm_provider="anthropic", llm_api_key="sk-ant-test", llm_model="claude-haiku-4-5")
+    base = make_config(
+        llm_provider="anthropic", llm_api_key="sk-ant-test", llm_model="claude-opus-5", llm_temperature=0.0
+    )
 
     await llms.call_llm("вопрос", config=base)
-    await llms.call_llm("вопрос", config=bench_config(base, "claude-haiku-4-5", 0.0))
+    await llms.call_llm("вопрос", config=bench_config(base, "claude-haiku-4-5", "low"))
 
-    assert "temperature" not in client.calls[0]
-    assert client.calls[1]["temperature"] == 0.0
+    assert "temperature" not in client.calls[0] and "output_config" not in client.calls[0]
+    assert "temperature" not in client.calls[1]
+    assert client.calls[1]["output_config"] == {"effort": "low"}
     assert client.calls[1]["model"] == "claude-haiku-4-5"
+
+
+async def test_ollama_still_gets_temperature_when_configured(monkeypatch):
+    client = FakeClient(response=openai_response("ok"))
+    monkeypatch.setattr(ollama_provider, "AsyncOpenAI", lambda **kwargs: client)
+
+    await llms.call_llm("вопрос", config=make_config(llm_temperature=0.0))
+
+    assert client.calls[0]["temperature"] == 0.0
 
 
 # 3. Провайдер не вернул usage → нули, исключения нет
@@ -167,6 +184,8 @@ async def test_agent_loop_records_llm_and_tool_events_with_one_run_id(monkeypatc
     assert events[2]["input_tokens"] == 150
     kinds = [b["kind"] for b in events[2]["context_blocks"]]
     assert kinds == ["system", "tools", "user", "assistant", "tool"]
+    assert events[0]["increment"] is None
+    assert events[2]["increment"]["method"] == "chars" and events[2]["increment"]["tool_chars"] == 3
 
 
 # 5. Падение записи телеметрии не роняет run_agent
@@ -194,13 +213,21 @@ def synthetic_run(run_id="run-x", model="claude-opus-5"):
     assistant_2 = {"kind": "assistant", "chars": 100, "hash": "a2"}
     tool_2 = {"kind": "tool", "chars": 100, "hash": "t2"}
 
-    def llm(step, blocks, input_tokens, output_tokens, cached=0):
+    def llm(step, blocks, input_tokens, output_tokens, cached=0, increment=None):
         usage = Usage(input_tokens=input_tokens, output_tokens=output_tokens, cached_input_tokens=cached)
         return {
             "event": EVENT_LLM_CALL, "run_id": run_id, "step": step, "model": model,
             "input_tokens": input_tokens, "output_tokens": output_tokens, "cached_input_tokens": cached,
             "cache_write_input_tokens": 0, "latency_ms": 100 * step,
             "cost": cost_breakdown(model, usage).total, "usage_missing": False, "context_blocks": blocks,
+            "increment": increment,
+        }
+
+    def counted(assistant_tokens, tool_tokens, tool_chars):
+        return {
+            "method": "count_tokens", "assistant_chars": assistant_tokens, "tool_chars": tool_chars,
+            "assistant_tokens": assistant_tokens, "tool_tokens": tool_tokens,
+            "tool_messages": [{"name": "exec", "chars": tool_chars}],
         }
 
     def tool(step, size):
@@ -210,9 +237,9 @@ def synthetic_run(run_id="run-x", model="claude-opus-5"):
     return [
         llm(1, [system, user], 900, 50),
         tool(1, 50),
-        llm(2, [system, user, assistant_1, tool_1], 1000, 100),
+        llm(2, [system, user, assistant_1, tool_1], 1000, 100, increment=counted(30, 70, 50)),
         tool(2, 100),
-        llm(3, [system, user, assistant_1, tool_1, assistant_2, tool_2], 1200, 30),
+        llm(3, [system, user, assistant_1, tool_1, assistant_2, tool_2], 1200, 30, increment=counted(50, 150, 100)),
     ]
 
 
@@ -221,9 +248,48 @@ def test_repeated_tokens_on_a_synthetic_three_step_run():
 
     repeated, total = report.count_repeated_tokens(report.llm_events_of_run(events, "run-x"))
 
-    # виток 1: ничего; виток 2: system+user = 900 из 1000; виток 3: 1000 из 1200
+    # виток 1: ничего; виток 2: весь payload витка 1 = 900; виток 3: весь payload витка 2 = 1000
     assert total == 3100
-    assert repeated == pytest.approx(1900.0)
+    assert repeated == 1900 and isinstance(repeated, int)
+
+
+def test_growth_is_the_exact_difference_and_split_by_counted_ratio():
+    timeline = report.build_timeline(synthetic_run(), "run-x")
+
+    assert [s.growth_tokens for s in timeline.steps] == [0, 100, 200]
+    # виток 2: 100 tok в пропорции 30:70; виток 3: 200 tok в пропорции 50:150
+    assert (timeline.steps[1].assistant_growth, timeline.steps[1].tool_growth) == (30, 70)
+    assert (timeline.steps[2].assistant_growth, timeline.steps[2].tool_growth) == (50, 150)
+    assert timeline.steps[2].increment_method == "count_tokens"
+
+
+def test_growth_falls_back_to_chars_inside_the_increment_only():
+    by_chars = {"method": "chars", "assistant_chars": 25, "tool_chars": 75, "assistant_tokens": None, "tool_tokens": None}
+
+    assert report.split_growth(200, by_chars) == (50, 150, "chars")
+    assert report.split_growth(200, None) == (200, 0, "none")
+    assert report.split_growth(0, by_chars) == (0, 0, "chars")
+
+
+async def test_increment_is_described_from_the_messages_appended_since_the_previous_step():
+    from observability import remember_payload, set_current_step
+
+    set_current_step("run-inc", 2)
+    call = ToolCall(id="c1", name="exec", arguments={"command": ["ls"]})
+    messages = [
+        llms.user_message("вопрос"),
+        llms.assistant_message(LLMResult(text="смотрю", tool_calls=(call,))),
+        llms.tool_message(call, "a.txt\nb.txt"),
+    ]
+    remember_payload("run-inc", 1)
+
+    increment = await llms.describe_increment("run-inc", messages, make_config())
+
+    assert increment["method"] == "chars"
+    assert increment["tool_chars"] == len("a.txt\nb.txt")
+    assert increment["assistant_chars"] > len("смотрю")
+    assert increment["tool_messages"] == [{"name": "exec", "chars": len("a.txt\nb.txt")}]
+    assert await llms.describe_increment("run-other", messages, make_config()) is None
 
 
 # 7. Проверка задачи бенчмарка: правильный ответ → success, неправильный → fail
@@ -305,23 +371,39 @@ def test_cost_is_aggregated_separately_by_token_type(tmp_path):
     assert summary.cost["total"] == pytest.approx(summary.cost["input"] + summary.cost["output"])
     assert summary.success_rate_local == 1.0
     assert summary.tools[0].name == "exec" and summary.tools[0].calls == 2
-    assert summary.tools[0].estimated_tokens == pytest.approx(50.0 + 100.0)
+    assert summary.tools[0].estimated_tokens == pytest.approx(70.0 + 150.0)
     # виток 2: 1000×$5 + 100×$25 = $0.0075 дороже витка 3: 1200×$5 + 30×$25 = $0.00675
     assert summary.most_expensive_step[1] == 2
-    assert summary.growth_per_step["system"] == pytest.approx(0.0)
-    assert summary.growth_per_step["tool"] > summary.growth_per_step["user"]
+    assert summary.growth_per_step["system"] == 0.0 and summary.growth_per_step["user"] == 0.0
+    assert summary.growth_per_step["tool"] == pytest.approx((70 + 150) / 2)
+    assert summary.growth_per_step["assistant"] == pytest.approx((30 + 50) / 2)
+    assert summary.increment_methods == {"count_tokens": 2}
 
 
-def test_measurement_json_keeps_model_temperature_and_round_trips(tmp_path):
-    meta = BenchMeta("before", "anthropic", "claude-haiku-4-5", 0.0, 1, (2,), 8, 4000, 0.0)
-    outcome = TaskOutcome(2, "line-count", False, 1, "run-x", True, True, False, 3, "", "35", 900)
+def test_context_constants_come_from_meta_and_first_step():
+    meta = {"label": "x", "model": "claude-opus-5", "runs": 1, "system_prompt_tokens": 700, "tool_descriptions_tokens": 100}
+
+    summary = report.aggregate(meta, [], synthetic_run())
+
+    # виток 1 читает 900 tok: 700 system + 100 tools + 100 постановка задачи
+    assert summary.context_constants == {"system": 700.0, "tools": 100.0, "user": 100.0}
+
+
+def test_measurement_json_keeps_model_effort_and_round_trips(tmp_path):
+    meta = BenchMeta("before", "anthropic", "claude-haiku-4-5", "low", 2, (2,), 8, 4000, 0.0)
+    outcomes = [
+        TaskOutcome(2, "line-count", False, 1, "run-x", True, True, False, 3, "", "35", 900),
+        TaskOutcome(2, "line-count", False, 2, "", False, False, False, 0, "LLMError: сбой", "", 10),
+    ]
     path = tmp_path / "results" / "before.json"
 
-    write_measurement(path, build_measurement(meta, [outcome], synthetic_run()))
+    write_measurement(path, build_measurement(meta, outcomes, synthetic_run()))
     loaded = report.load_measurement(tmp_path / "results", "before")
 
-    assert loaded.meta["model"] == "claude-haiku-4-5" and loaded.meta["temperature"] == 0.0
-    assert loaded.summary.model == "claude-haiku-4-5" and loaded.summary.temperature == 0.0
+    assert loaded.meta["model"] == "claude-haiku-4-5" and loaded.meta["effort"] == "low"
+    assert loaded.summary.model == "claude-haiku-4-5" and loaded.summary.effort == "low"
+    assert loaded.summary.success_rate_local == 0.5
+    assert loaded.summary.success_rate_by_run == (1.0, 0.0)
     assert loaded.summary.cost["total"] == pytest.approx(3100 * 5e-6 + 180 * 25e-6)
     assert loaded.summary.tools[0].name == "exec"
     assert loaded.summary.task_runs == {2: ("run-x",)}

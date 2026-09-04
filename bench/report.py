@@ -20,12 +20,15 @@ KIND_ASSISTANT = "assistant"
 KIND_TOOL = "tool"
 CONTEXT_KINDS = (KIND_SYSTEM, KIND_TOOLS, KIND_USER, KIND_ASSISTANT, KIND_TOOL)
 KIND_TITLES = {
-    KIND_SYSTEM: "system prompt",
+    KIND_SYSTEM: "system prompt (со скиллами)",
     KIND_TOOLS: "описания инструментов",
-    KIND_USER: "сообщение пользователя",
+    KIND_USER: "постановка задачи",
     KIND_ASSISTANT: "ответы модели (история)",
     KIND_TOOL: "вывод инструментов",
 }
+INCREMENT_COUNT_TOKENS = "count_tokens"
+INCREMENT_CHARS = "chars"
+INCREMENT_NONE = "none"
 DEFAULT_DASHBOARD_NAME = "dashboard.html"
 
 
@@ -57,26 +60,32 @@ def event_usage(event: dict) -> Usage:
 
 
 def context_tokens(event: dict) -> int:
-    """Everything the model read on this step, cached or not."""
+    """Everything the model read on this step, cached or not — exact, from the API."""
     usage = event_usage(event)
     return usage.input_tokens + usage.cached_input_tokens + usage.cache_write_input_tokens
 
 
-def block_token_estimates(event: dict) -> list[tuple[dict, float]]:
-    """Split the step's input tokens across payload blocks proportionally to their size."""
-    blocks = event.get("context_blocks") or []
-    total_chars = sum(int(block.get("chars", 0)) for block in blocks)
-    total = context_tokens(event)
-    if not blocks or total_chars == 0:
-        return [(block, 0.0) for block in blocks]
-    return [(block, total * int(block.get("chars", 0)) / total_chars) for block in blocks]
+def block_chars(event: dict, kind: str) -> int:
+    return sum(int(b.get("chars", 0)) for b in event.get("context_blocks") or [] if b.get("kind") == kind)
 
 
-def tokens_by_kind(event: dict) -> dict[str, float]:
-    result: dict[str, float] = defaultdict(float)
-    for block, tokens in block_token_estimates(event):
-        result[block.get("kind", KIND_USER)] += tokens
-    return dict(result)
+def split_growth(growth: int, increment: dict | None) -> tuple[int, int, str]:
+    """(assistant tokens, tool tokens, method): the exact growth split by the counted ratio."""
+    if increment is None:
+        return (growth, 0, INCREMENT_NONE)
+    method = str(increment.get("method", INCREMENT_CHARS))
+    if method == INCREMENT_COUNT_TOKENS and increment.get("assistant_tokens") is not None:
+        assistant_weight = int(increment["assistant_tokens"])
+        tool_weight = int(increment.get("tool_tokens") or 0)
+    else:
+        method = INCREMENT_CHARS
+        assistant_weight = int(increment.get("assistant_chars", 0))
+        tool_weight = int(increment.get("tool_chars", 0))
+    total_weight = assistant_weight + tool_weight
+    if total_weight == 0 or growth <= 0:
+        return (max(growth, 0), 0, method)
+    assistant = round(growth * assistant_weight / total_weight)
+    return (assistant, growth - assistant, method)
 
 
 @dataclass(frozen=True)
@@ -86,11 +95,16 @@ class StepView:
     cached_input_tokens: int
     cache_write_input_tokens: int
     output_tokens: int
+    reasoning_tokens: int
     context_tokens: int
-    repeated_tokens: float
+    # Точные числа: прирост = контекст(N) − контекст(N−1), повторно = контекст(N−1).
+    growth_tokens: int
+    repeated_tokens: int
+    assistant_growth: int
+    tool_growth: int
+    increment_method: str
     cost: float
     latency_ms: int
-    by_kind: dict[str, float]
 
 
 @dataclass(frozen=True)
@@ -110,18 +124,12 @@ def llm_events_of_run(events: list[dict], run_id: str) -> list[dict]:
     )
 
 
-def repeated_tokens_per_step(llm_events: list[dict]) -> list[float]:
-    """Tokens of blocks that were already in the previous step's payload of the same run."""
-    repeated: list[float] = []
-    previous_hashes: set[str] = set()
-    for event in llm_events:
-        estimates = block_token_estimates(event)
-        repeated.append(sum(t for block, t in estimates if block.get("hash") in previous_hashes))
-        previous_hashes = {block.get("hash") for block, _ in estimates}
-    return repeated
+def repeated_tokens_per_step(llm_events: list[dict]) -> list[int]:
+    """Step N resends the whole payload of step N−1, so its repeated tokens are context(N−1)."""
+    return [0] + [context_tokens(event) for event in llm_events[:-1]]
 
 
-def count_repeated_tokens(llm_events: list[dict]) -> tuple[float, int]:
+def count_repeated_tokens(llm_events: list[dict]) -> tuple[int, int]:
     """(repeated tokens, total input tokens) over the whole run."""
     return (
         sum(repeated_tokens_per_step(llm_events)),
@@ -132,22 +140,31 @@ def count_repeated_tokens(llm_events: list[dict]) -> tuple[float, int]:
 def build_timeline(events: list[dict], run_id: str) -> RunTimeline:
     llm_events = llm_events_of_run(events, run_id)
     repeated = repeated_tokens_per_step(llm_events)
-    steps = tuple(
-        StepView(
-            step=int(event.get("step", index + 1)),
-            input_tokens=int(event.get("input_tokens", 0)),
-            cached_input_tokens=int(event.get("cached_input_tokens", 0)),
-            cache_write_input_tokens=int(event.get("cache_write_input_tokens", 0)),
-            output_tokens=int(event.get("output_tokens", 0)),
-            context_tokens=context_tokens(event),
-            repeated_tokens=repeated[index],
-            cost=float(event.get("cost", 0.0)),
-            latency_ms=int(event.get("latency_ms", 0)),
-            by_kind=tokens_by_kind(event),
+    steps = []
+    for index, event in enumerate(llm_events):
+        usage = event_usage(event)
+        context = context_tokens(event)
+        growth = context - repeated[index] if index else 0
+        assistant, tool, method = split_growth(growth, event.get("increment")) if index else (0, 0, INCREMENT_NONE)
+        steps.append(
+            StepView(
+                step=int(event.get("step", index + 1)),
+                input_tokens=usage.input_tokens,
+                cached_input_tokens=usage.cached_input_tokens,
+                cache_write_input_tokens=usage.cache_write_input_tokens,
+                output_tokens=usage.output_tokens,
+                reasoning_tokens=usage.reasoning_tokens,
+                context_tokens=context,
+                growth_tokens=growth,
+                repeated_tokens=repeated[index],
+                assistant_growth=assistant,
+                tool_growth=tool,
+                increment_method=method,
+                cost=float(event.get("cost", 0.0)),
+                latency_ms=usage.latency_ms,
+            )
         )
-        for index, event in enumerate(llm_events)
-    )
-    return RunTimeline(run_id=run_id, steps=steps)
+    return RunTimeline(run_id=run_id, steps=tuple(steps))
 
 
 # ── aggregation ────────────────────────────────────────────────────────────
@@ -178,22 +195,26 @@ class Summary:
     label: str
     provider: str
     model: str
-    temperature: float | None
+    effort: str | None
     runs: int
     task_count: int
     outcome_count: int
     success_rate_local: float | None
     success_rate_network: float | None
+    # Success rate локальных задач в каждом прогоне: min/max показывают шум.
+    success_rate_by_run: tuple[float, ...]
     tokens: dict[str, int]
     cost: dict[str, float]
     avg_cost_per_run: float
     avg_tokens_per_run: float
     cache_hit_rate: float
     tools: tuple[ToolStat, ...]
-    repeated_tokens: float
+    repeated_tokens: int
     repeated_share: float
     most_expensive_step: tuple[str, int, float] | None
     growth_per_step: dict[str, float]
+    context_constants: dict[str, float]
+    increment_methods: dict[str, int]
     per_task: tuple[TaskStat, ...]
     llm_calls: int = 0
     usage_missing_calls: int = 0
@@ -205,6 +226,17 @@ def _success_rate(outcomes: list[dict], network: bool) -> float | None:
     if not subset:
         return None
     return sum(1 for o in subset if o.get("success")) / len(subset)
+
+
+def _success_rate_by_run(outcomes: list[dict]) -> tuple[float, ...]:
+    """Local-task success rate of every run index, in order."""
+    local = [o for o in outcomes if not o.get("network")]
+    indexes = sorted({int(o.get("run_index", 1)) for o in local})
+    rates = []
+    for index in indexes:
+        subset = [o for o in local if int(o.get("run_index", 1)) == index]
+        rates.append(sum(1 for o in subset if o.get("success")) / len(subset))
+    return tuple(rates)
 
 
 def _sum_tokens(llm_events: list[dict]) -> dict[str, int]:
@@ -231,8 +263,8 @@ def _sum_cost(llm_events: list[dict]) -> dict[str, float]:
     return totals
 
 
-def _tool_stats(events: list[dict]) -> tuple[ToolStat, ...]:
-    """Tool output tokens: the fresh tool blocks of step s belong to the tool calls of step s-1."""
+def _tool_stats(events: list[dict], timelines_by_run: dict[str, "RunTimeline"]) -> tuple[ToolStat, ...]:
+    """Tool-output growth of step s belongs to the tool calls of step s−1, split by output size."""
     calls: dict[str, int] = defaultdict(int)
     chars: dict[str, int] = defaultdict(int)
     tokens: dict[str, float] = defaultdict(float)
@@ -243,16 +275,13 @@ def _tool_stats(events: list[dict]) -> tuple[ToolStat, ...]:
             calls[name] += 1
             chars[name] += int(event.get("output_size", 0))
             tool_events[(str(event.get("run_id")), int(event.get("step", 0)))].append(event)
-    for event in events:
-        if event.get("event") != EVENT_LLM_CALL:
-            continue
-        producers = tool_events.get((str(event.get("run_id")), int(event.get("step", 0)) - 1), [])
-        if not producers:
-            continue
-        tool_blocks = [t for block, t in block_token_estimates(event) if block.get("kind") == KIND_TOOL]
-        fresh = tool_blocks[-len(producers):]
-        for producer, block_tokens in zip(producers, fresh):
-            tokens[str(producer.get("tool_name", "?"))] += block_tokens
+    for run_id, timeline in timelines_by_run.items():
+        for step in timeline.steps:
+            producers = tool_events.get((run_id, step.step - 1), [])
+            total_size = sum(int(p.get("output_size", 0)) for p in producers)
+            for producer in producers:
+                share = int(producer.get("output_size", 0)) / total_size if total_size else 1 / len(producers)
+                tokens[str(producer.get("tool_name", "?"))] += step.tool_growth * share
     return tuple(
         sorted(
             (ToolStat(name, calls[name], chars[name], tokens[name]) for name in calls),
@@ -263,16 +292,37 @@ def _tool_stats(events: list[dict]) -> tuple[ToolStat, ...]:
 
 
 def _growth_per_step(timelines: list[RunTimeline]) -> dict[str, float]:
-    """Average tokens a context kind gains per step, over runs with at least two steps."""
-    growth: dict[str, list[float]] = defaultdict(list)
+    """Average exact growth per step by kind; the constants never grow."""
+    assistant: list[int] = []
+    tool: list[int] = []
     for timeline in timelines:
-        if len(timeline.steps) < 2:
-            continue
-        first, last = timeline.steps[0], timeline.steps[-1]
-        span = len(timeline.steps) - 1
-        for kind in CONTEXT_KINDS:
-            growth[kind].append((last.by_kind.get(kind, 0.0) - first.by_kind.get(kind, 0.0)) / span)
-    return {kind: (sum(values) / len(values) if values else 0.0) for kind, values in growth.items()}
+        for step in timeline.steps[1:]:
+            assistant.append(step.assistant_growth)
+            tool.append(step.tool_growth)
+    return {
+        KIND_SYSTEM: 0.0,
+        KIND_TOOLS: 0.0,
+        KIND_USER: 0.0,
+        KIND_ASSISTANT: sum(assistant) / len(assistant) if assistant else 0.0,
+        KIND_TOOL: sum(tool) / len(tool) if tool else 0.0,
+    }
+
+
+def _context_constants(meta: dict, timelines: list[RunTimeline]) -> dict[str, float]:
+    """Absolute size of the parts that are resent unchanged on every step."""
+    system = int(meta.get("system_prompt_tokens", 0))
+    tools = int(meta.get("tool_descriptions_tokens", 0))
+    first_steps = [t.steps[0].context_tokens for t in timelines if t.steps]
+    task_prompt = (sum(first_steps) / len(first_steps) - system - tools) if first_steps else 0.0
+    return {KIND_SYSTEM: float(system), KIND_TOOLS: float(tools), KIND_USER: max(task_prompt, 0.0)}
+
+
+def _increment_methods(timelines: list[RunTimeline]) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for timeline in timelines:
+        for step in timeline.steps[1:]:
+            counts[step.increment_method] += 1
+    return dict(counts)
 
 
 def _per_task(outcomes: list[dict], timelines_by_run: dict[str, RunTimeline]) -> tuple[TaskStat, ...]:
@@ -322,22 +372,25 @@ def aggregate(meta: dict, outcomes: list[dict], events: list[dict]) -> Summary:
         label=str(meta.get("label", "")),
         provider=str(meta.get("provider", "")),
         model=str(meta.get("model", "")),
-        temperature=meta.get("temperature"),
+        effort=meta.get("effort"),
         runs=int(meta.get("runs", 0)),
         task_count=len({o.get("task_id") for o in outcomes}),
         outcome_count=outcome_count,
         success_rate_local=_success_rate(outcomes, network=False),
         success_rate_network=_success_rate(outcomes, network=True),
+        success_rate_by_run=_success_rate_by_run(outcomes),
         tokens=tokens,
         cost=cost,
         avg_cost_per_run=cost["total"] / outcome_count if outcome_count else 0.0,
         avg_tokens_per_run=(total_input + tokens["output"]) / outcome_count if outcome_count else 0.0,
         cache_hit_rate=tokens["cached"] / total_input if total_input else 0.0,
-        tools=_tool_stats(events),
+        tools=_tool_stats(events, timelines_by_run),
         repeated_tokens=repeated,
         repeated_share=repeated / total_input if total_input else 0.0,
         most_expensive_step=most_expensive,
         growth_per_step=_growth_per_step(timelines),
+        context_constants=_context_constants(meta, timelines),
+        increment_methods=_increment_methods(timelines),
         per_task=_per_task(outcomes, timelines_by_run),
         llm_calls=len(llm_events),
         usage_missing_calls=sum(1 for e in llm_events if e.get("usage_missing")),
@@ -364,6 +417,7 @@ def summary_from_dict(data: dict) -> Summary:
     expensive = fields.get("most_expensive_step")
     fields["most_expensive_step"] = tuple(expensive) if expensive else None
     fields["task_runs"] = {int(k): tuple(v) for k, v in (fields.get("task_runs") or {}).items()}
+    fields["success_rate_by_run"] = tuple(fields.get("success_rate_by_run", ()))
     return Summary(**fields)
 
 
@@ -469,6 +523,12 @@ def _fmt_rate(value: float | None) -> str:
     return "—" if value is None else f"{value * 100:.1f}%"
 
 
+def _fmt_spread(rates: tuple[float, ...]) -> str:
+    if not rates:
+        return "—"
+    return f"{min(rates) * 100:.0f}%…{max(rates) * 100:.0f}%"
+
+
 def _card(title: str, value: str) -> str:
     return f'<div class="card"><span class="muted">{html.escape(title)}</span><b>{html.escape(value)}</b></div>'
 
@@ -486,9 +546,10 @@ def _summary_section(summary: Summary) -> str:
         [
             _card("замер", summary.label),
             _card("модель", summary.model),
-            _card("temperature", "—" if summary.temperature is None else str(summary.temperature)),
+            _card("effort", summary.effort or "—"),
             _card("задач × прогонов", f"{summary.task_count} × {summary.runs}"),
             _card("success rate (локальные)", _fmt_rate(summary.success_rate_local)),
+            _card("разброс по прогонам", _fmt_spread(summary.success_rate_by_run)),
             _card("success rate (сетевые, flaky)", _fmt_rate(summary.success_rate_network)),
             _card("стоимость", _fmt_money(summary.cost["total"])),
             _card("в среднем на задачу", _fmt_money(summary.avg_cost_per_run)),
@@ -513,9 +574,17 @@ def _summary_section(summary: Summary) -> str:
         or [("—", "0", "0", "0")],
     )
     growth = _table(
-        ("тип контекста", "≈ tokens прироста за виток"),
-        [(KIND_TITLES.get(k, k), _fmt_int(v)) for k, v in sorted(summary.growth_per_step.items(), key=lambda kv: -kv[1])],
+        ("тип контекста", "размер, tokens", "рост за виток, tokens"),
+        [
+            (
+                KIND_TITLES.get(kind, kind),
+                _fmt_int(summary.context_constants[kind]) if kind in summary.context_constants else "растёт",
+                _fmt_int(summary.growth_per_step.get(kind, 0.0)),
+            )
+            for kind in CONTEXT_KINDS
+        ],
     )
+    methods = ", ".join(f"{k}: {v}" for k, v in sorted(summary.increment_methods.items())) or "—"
     expensive = "—"
     if summary.most_expensive_step:
         run_id, step, cost = summary.most_expensive_step
@@ -542,7 +611,11 @@ def _summary_section(summary: Summary) -> str:
         f"<h2>Сводка: {html.escape(summary.label)}</h2>{cards}{missing}"
         f"<h3>Токены и стоимость по типам</h3>{tokens}"
         f"<h3>Самые дорогие инструменты</h3>{tools}"
-        f"<h3>Рост контекста</h3>{growth}<p>Самый дорогой виток: {html.escape(expensive)}</p>"
+        f"<h3>Рост контекста</h3>{growth}"
+        f'<p class="muted">Прирост витка — точная разность input между витками; раскладка прироста '
+        f"на ответ модели и вывод инструментов по виткам: {html.escape(methods)} "
+        f"(count_tokens — по токенайзеру модели, chars — оценка по символам).</p>"
+        f"<p>Самый дорогой виток: {html.escape(expensive)}</p>"
         f"<h3>По задачам</h3>{tasks}"
     )
 
@@ -609,8 +682,11 @@ def render_timeline_svg(timeline: RunTimeline, width: int = 900, height: int = 3
 
 def _timeline_table(timeline: RunTimeline) -> str:
     return _table(
-        ("виток", "input", "cached", "cache write", "output", "контекст", "повторно", "стоимость", "мс")
-        + tuple(KIND_TITLES[k] for k in CONTEXT_KINDS),
+        (
+            "виток", "input", "cached", "cache write", "output", "reasoning", "контекст",
+            "прирост", "из них ответ модели", "из них вывод инструментов", "повторно",
+            "стоимость", "мс",
+        ),
         [
             (
                 str(s.step),
@@ -618,12 +694,15 @@ def _timeline_table(timeline: RunTimeline) -> str:
                 _fmt_int(s.cached_input_tokens),
                 _fmt_int(s.cache_write_input_tokens),
                 _fmt_int(s.output_tokens),
+                _fmt_int(s.reasoning_tokens),
                 _fmt_int(s.context_tokens),
+                _fmt_int(s.growth_tokens),
+                _fmt_int(s.assistant_growth),
+                _fmt_int(s.tool_growth),
                 _fmt_int(s.repeated_tokens),
                 _fmt_money(s.cost),
                 str(s.latency_ms),
             )
-            + tuple(_fmt_int(s.by_kind.get(k, 0.0)) for k in CONTEXT_KINDS)
             for s in timeline.steps
         ],
     )
@@ -678,9 +757,10 @@ def render_dashboard(
 
 
 def _print_summary(summary: Summary) -> None:
-    print(f"\n== {summary.label}: {summary.model} ({summary.provider}), temperature={summary.temperature}, "
+    print(f"\n== {summary.label}: {summary.model} ({summary.provider}), effort={summary.effort}, "
           f"задач {summary.task_count} × {summary.runs}, вызовов модели {summary.llm_calls}")
-    print(f"success rate: локальные {_fmt_rate(summary.success_rate_local)}, "
+    print(f"success rate: локальные {_fmt_rate(summary.success_rate_local)} "
+          f"(разброс по прогонам {_fmt_spread(summary.success_rate_by_run)}), "
           f"сетевые {_fmt_rate(summary.success_rate_network)}")
     print(f"tokens: input {_fmt_int(summary.tokens['input'])}, cached {_fmt_int(summary.tokens['cached'])}, "
           f"cache write {_fmt_int(summary.tokens['cache_write'])}, output {_fmt_int(summary.tokens['output'])}")
@@ -695,8 +775,11 @@ def _print_summary(summary: Summary) -> None:
     if summary.most_expensive_step:
         run_id, step, cost = summary.most_expensive_step
         print(f"самый дорогой виток: run {run_id[:8]} шаг {step} — {_fmt_money(cost)}")
-    for kind, value in sorted(summary.growth_per_step.items(), key=lambda kv: -kv[1]):
-        print(f"рост {KIND_TITLES.get(kind, kind)}: ≈{_fmt_int(value)} tok/виток")
+    for kind in CONTEXT_KINDS:
+        size = summary.context_constants.get(kind)
+        size_text = f"размер {_fmt_int(size)} tok, " if size is not None else ""
+        print(f"{KIND_TITLES.get(kind, kind)}: {size_text}рост {_fmt_int(summary.growth_per_step.get(kind, 0.0))} tok/виток")
+    print(f"раскладка прироста по виткам: {summary.increment_methods or '—'}")
 
 
 def _print_deltas(deltas: tuple[Delta, ...]) -> None:

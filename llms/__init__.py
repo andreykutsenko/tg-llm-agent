@@ -3,13 +3,13 @@
 import dataclasses
 import hashlib
 import json
+import logging
 import re
 import time
 
 from bench.pricing import estimate_cost
 from config import PROVIDER_ANTHROPIC, PROVIDER_OLLAMA, Config, get_config
-from observability import current_step
-from observability import recorder
+from observability import current_step, previous_payload_size, recorder, remember_payload
 from llms import anthropic as anthropic_provider
 from llms import ollama as ollama_provider
 from llms.errors import LLMError, LLMTimeoutError
@@ -28,6 +28,7 @@ from llms.protocol import (
 __all__ = [
     "call_llm",
     "call_llm_step",
+    "count_tokens",
     "strip_think_block",
     "LLMError",
     "LLMTimeoutError",
@@ -40,6 +41,8 @@ __all__ = [
     "user_message",
 ]
 
+logger = logging.getLogger(__name__)
+
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 # Обрыв по лимиту токенов оставляет открытый <think> без закрывающего тега.
 _THINK_UNCLOSED = re.compile(r"<think>(?!.*</think>).*\Z", re.DOTALL | re.IGNORECASE)
@@ -48,6 +51,12 @@ _STEP_GENERATORS = {
     PROVIDER_OLLAMA: ollama_provider.generate_step,
     PROVIDER_ANTHROPIC: anthropic_provider.generate_step,
 }
+# Только Anthropic отдаёт счётчик токенов бесплатным эндпоинтом.
+_TOKEN_COUNTERS = {
+    PROVIDER_ANTHROPIC: anthropic_provider.count_tokens,
+}
+INCREMENT_BY_COUNT_TOKENS = "count_tokens"
+INCREMENT_BY_CHARS = "chars"
 
 
 def strip_think_block(text: str) -> str:
@@ -98,12 +107,77 @@ def describe_context(
     return tuple(blocks)
 
 
-def _record_step(
+async def count_tokens(
+    messages: list[dict],
+    tools: tuple[ToolSpec, ...] = (),
+    config: Config | None = None,
+    system: str | None = None,
+) -> int | None:
+    """Token count by the provider's tokenizer; None when the provider has no counter."""
+    active_config = config if config is not None else get_config()
+    counter = _TOKEN_COUNTERS.get(active_config.llm_provider)
+    if counter is None:
+        return None
+    return await counter(messages, tools, active_config, system)
+
+
+def _blank_tool_results(messages: list[dict]) -> list[dict]:
+    return [
+        {**message, "content": ""} if message.get("role") == ROLE_TOOL else message
+        for message in messages
+    ]
+
+
+async def _count_increment(new_messages: list[dict], config: Config) -> tuple[int, int] | None:
+    """(assistant tokens, tool-output tokens) of the appended pair, or None if uncountable."""
+    if not config.llm_count_tokens or not new_messages:
+        return None
+    try:
+        without_outputs = await count_tokens(_blank_tool_results(new_messages), (), config)
+        with_outputs = await count_tokens(new_messages, (), config)
+    except LLMError as error:
+        logger.warning("Прирост контекста не посчитан через count_tokens: %s", error)
+        return None
+    if without_outputs is None or with_outputs is None:
+        return None
+    return (without_outputs, max(with_outputs - without_outputs, 0))
+
+
+async def describe_increment(
+    run_id: str, messages: list[dict], config: Config
+) -> dict | None:
+    """What this step added to the payload compared with the previous step of the run."""
+    already_sent = previous_payload_size(run_id)
+    remember_payload(run_id, len(messages))
+    if already_sent == 0:
+        return None
+    new_messages = messages[already_sent:]
+    assistant_chars = sum(
+        len(_message_text(m)) for m in new_messages if m.get("role") == ROLE_ASSISTANT
+    )
+    tool_messages = [
+        {"name": m.get("name", ""), "chars": len(_message_text(m))}
+        for m in new_messages
+        if m.get("role") == ROLE_TOOL
+    ]
+    counted = await _count_increment(new_messages, config)
+    return {
+        "method": INCREMENT_BY_COUNT_TOKENS if counted else INCREMENT_BY_CHARS,
+        "assistant_chars": assistant_chars,
+        "tool_chars": sum(item["chars"] for item in tool_messages),
+        "assistant_tokens": counted[0] if counted else None,
+        "tool_tokens": counted[1] if counted else None,
+        "tool_messages": tool_messages,
+    }
+
+
+async def _record_step(
     config: Config, tools: tuple[ToolSpec, ...], messages: list[dict], usage: Usage
 ) -> None:
     position = current_step()
     if position is None:
         return
+    increment = await describe_increment(position.run_id, messages, config)
     recorder.record_llm_call(
         run_id=position.run_id,
         step=position.step,
@@ -111,6 +185,7 @@ def _record_step(
         usage=usage,
         cost=estimate_cost(config.llm_model, usage),
         context_blocks=describe_context(config.system_prompt, tools, messages),
+        increment=increment,
     )
 
 
@@ -125,7 +200,7 @@ async def call_llm_step(
     result = await generate_step(messages, tools, active_config)
     latency_ms = int((time.perf_counter() - started) * 1000)
     usage = dataclasses.replace(result.usage, latency_ms=latency_ms)
-    _record_step(active_config, tools, messages, usage)
+    await _record_step(active_config, tools, messages, usage)
     return LLMResult(
         text=strip_think_block(result.text), tool_calls=result.tool_calls, usage=usage
     )

@@ -40,8 +40,8 @@ class Usage:
     # Запись в кэш Anthropic тарифицируется дороже обычного ввода (×1.25),
     # поэтому без этого поля стоимость замера «после» была бы занижена.
     cache_write_input_tokens: int = 0
-    # Токены рассуждения, если провайдер отдаёт их отдельно; у Anthropic они
-    # уже входят в output_tokens, поэтому здесь 0.
+    # Токены рассуждения: часть output_tokens, отдаётся провайдером отдельно
+    # (Anthropic: output_tokens_details.thinking_tokens); без мышления — 0.
     reasoning_tokens: int = 0
 
     @property

@@ -50,8 +50,9 @@ def record_llm_call(
     usage: Usage,
     cost: float,
     context_blocks: tuple[dict, ...] = (),
+    increment: dict | None = None,
 ) -> None:
-    """One model call. context_blocks describe the input payload without its content."""
+    """One model call. context_blocks and increment describe the payload without its content."""
     _write(
         {
             "event": EVENT_LLM_CALL,
@@ -68,6 +69,7 @@ def record_llm_call(
             "cost": cost,
             "usage_missing": not usage.is_reported,
             "context_blocks": list(context_blocks),
+            "increment": increment,
         }
     )
 

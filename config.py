@@ -54,9 +54,13 @@ class Config:
     exec_max_output: int
     skills_dir: Path
     skills_max_chars: int
-    # None — параметр не отправляется: модели с адаптивным рассуждением
-    # (claude-opus-5) отклоняют temperature; бенчмарк задаёт 0 явно.
+    # None — параметр не отправляется. temperature поддерживает только Ollama:
+    # в Anthropic API 1.0 параметры сэмплинга удалены. effort — только Anthropic.
     llm_temperature: float | None = None
+    llm_effort: str | None = None
+    # Бенчмарк считает токены добавленных блоков через count_tokens — два
+    # лишних вызова на виток; боту в Telegram это не нужно.
+    llm_count_tokens: bool = False
 
 
 def mask_secret(secret: str) -> str:
