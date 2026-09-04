@@ -99,8 +99,38 @@ def test_long_output_is_truncated_with_a_notice(monkeypatch):
 
     answer = exec_tool.run_exec({"command": ["ls"]}, config)
 
-    assert "вывод обрезан до 100 символов" in answer
+    assert "пропущено 4900 символов из 5000" in answer
     assert answer.count("я") == 100
+    assert answer.index("пропущено") > answer.index("я" * 67)
+
+
+def test_multiline_output_keeps_head_and_tail_with_skipped_count(monkeypatch):
+    lines = [f"line {i}" for i in range(1, 101)]
+
+    def fake_run(command, **kwargs):
+        return SimpleNamespace(returncode=0, stdout="\n".join(lines), stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    config = make_config(exec_max_lines=30)
+
+    answer = exec_tool.run_exec({"command": ["cat", "big.txt"]}, config)
+
+    assert "line 20\n" in answer and "line 91\n" in answer and "line 100" in answer
+    assert "line 21\n" not in answer and "line 90\n" not in answer
+    assert "пропущено 70 строк из 100" in answer
+    assert "показаны первые 20 и последние 10 строк" in answer
+
+
+def test_short_output_is_returned_untouched(monkeypatch):
+    def fake_run(command, **kwargs):
+        return SimpleNamespace(returncode=0, stdout="a\nb\nc", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    answer = exec_tool.run_exec({"command": ["ls"]}, make_config(exec_max_lines=30))
+
+    assert "stdout:\na\nb\nc\n" in answer
+    assert "пропущено" not in answer
 
 
 def test_command_runs_in_the_configured_workdir(recorded_run):
